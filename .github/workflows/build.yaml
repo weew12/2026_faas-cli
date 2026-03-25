@@ -1,5 +1,9 @@
+# 工作流名称：build
 name: build
 
+# 触发条件：
+# 1. 任何分支 push 代码
+# 2. 任何 PR 提交
 on:
   push:
     branches:
@@ -8,38 +12,66 @@ on:
     branches:
       - "*"
 
+# 任务：构建 + 测试
 jobs:
   build:
+    # 运行环境：最新版 Ubuntu
     runs-on: ubuntu-latest
+    
+    # 并发控制：同一个分支，新任务自动取消旧任务（节省资源）
     concurrency: 
       group: ${{ github.ref }}
       cancel-in-progress: true
+
     steps:
+      # ======================
+      # 步骤 1：拉取代码
+      # ======================
       - 
         uses: actions/checkout@master
         with:
-            fetch-depth: 1
-      -
+            fetch-depth: 1  # 只拉最新提交（加速）
+
+      # ======================
+      # 步骤 2：安装 QEMU
+      # 作用：支持跨平台构建（arm64 / armhf）
+      # ======================
+      - 
         name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+
+      # ======================
+      # 步骤 3：安装 Docker Buildx
+      # 作用：Docker 官方跨平台构建工具
+      # ======================
       - 
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      # ======================
+      # 步骤 4：构建【普通用户权限镜像】(linux/amd64)
+      # 不推送，只本地构建
+      # ======================
       - 
         name: Local docker build (non-root image)
         uses: docker/build-push-action@v6
         with:
           context: .
           file: ./Dockerfile
-          push: false
+          push: false           # 不推送到仓库
           platforms: linux/amd64
-          target: release
+          target: release       # 构建普通用户版（非root）
           build-args: |
             VERSION=latest-dev
             GIT_COMMIT=${{ github.sha }}
             REPO_URL=https://github.com/openfaas/faas-cli
-          load: true
+          load: true            # 加载到本地 Docker
           tags: openfaas/faas-cli:${{ github.sha }}
+
+      # ======================
+      # 步骤 5：测试【多架构构建】
+      # 测试同时构建 amd64 + arm64
+      # ======================
       -
         name: Test for multi-arch build
         uses: docker/build-push-action@v6
@@ -48,13 +80,17 @@ jobs:
           file: ./Dockerfile
           push: false
           load: false
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64,linux/arm64  # 多架构
           target: release
           build-args: |
             VERSION=latest-dev
             GIT_COMMIT=${{ github.sha }}
             REPO_URL=https://github.com/openfaas/faas-cli
           tags: openfaas/faas-cli:${{ github.sha }}
+
+      # ======================
+      # 步骤 6：从镜像中复制 faas-cli 二进制到本地
+      # ======================
       - 
         name: Copy binary to host
         run: |
@@ -62,12 +98,25 @@ jobs:
           mkdir -p ./bin && \
           docker cp faas-cli:/usr/bin/faas-cli ./bin && \
           docker rm -f faas-cli
+
+      # ======================
+      # 步骤 7：构建示例函数
+      # ======================
       - 
         name: Build samples
         run: ./build_samples.sh
+
+      # ======================
+      # 步骤 8：测试版本号是否正确注入
+      # ======================
       - 
         name: Test version
         run: ./test/version.sh ./bin/faas-cli
+
+      # ======================
+      # 步骤 9：【核心集成测试】
+      # 测试：创建函数 → 构建 → 运行 → 检查结果
+      # ======================
       - 
         name: Test the cli and the function behaviour
         run: make test-templating

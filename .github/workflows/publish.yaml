@@ -1,14 +1,22 @@
+# 工作流名称：publish（发布）
 name: publish
 
+# 触发条件：
+# 只有当【推送 Git 标签】时，才会执行发布
+# 比如：git tag v0.1.2 && git push --tags
 on:
   push:
     tags:
       - '*'
 
+# 发布任务
 jobs:
   publish:
+    # 运行在最新版 Ubuntu
     runs-on: ubuntu-latest
 
+    # GitHub 权限配置
+    # 允许：写包、写仓库、上传发布资产
     permissions:
       actions: read
       checks: write
@@ -20,30 +28,59 @@ jobs:
       contents: write
 
     steps:
+      # ======================
+      # 步骤 1：拉取代码
+      # ======================
       - 
         uses: actions/checkout@master
         with:
           fetch-depth: 1
+
+      # ======================
+      # 步骤 2：获取当前 TAG 版本号
+      # 例如：v1.0.0
+      # ======================
       - name: Get TAG
         id: get_tag
         run: echo TAG=${GITHUB_REF#refs/tags/} >> $GITHUB_ENV
 
+      # ======================
+      # 步骤 3：设置镜像仓库地址
+      # ghcr.io/owner/repo
+      # ======================
       -
         name: Set Username/Repo and ImagePrefix as ENV vars
         run: |
           echo "IMAGE_PREFIX"=$(echo "ghcr.io/$GITHUB_REPOSITORY" | awk '{print tolower($1)}' | sed -e "s/:refs//") >> $GITHUB_ENV
+
+      # ======================
+      # 步骤 4：安装跨平台支持 QEMU
+      # ======================
       -
         name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+
+      # ======================
+      # 步骤 5：安装 Docker Buildx
+      # ======================
       - 
         name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
+      # ======================
+      # 步骤 6：登录 ghcr.io 容器仓库
+      # ======================
       - name: Login to Container Registry
         uses: docker/login-action@v3
         with:
           username: ${{ github.repository_owner }}
           password: ${{ secrets.GITHUB_TOKEN }}
           registry: ghcr.io
+
+      # ======================
+      # 步骤 7：构建并推送【普通用户版镜像】
+      # 多架构：amd64 + arm64
+      # ======================
       -
         name: Build and Push container images (non-root)
         uses: docker/build-push-action@v6
@@ -51,16 +88,20 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          target: release
+          target: release      # 普通用户版
           build-args: |
             VERSION=${{ env.TAG }}
             GIT_COMMIT=${{ github.sha }}
             REPO_URL=https://github.com/openfaas/faas-cli
-          push: true
+          push: true           # 推送到 ghcr.io
           tags: |
             ${{ env.IMAGE_PREFIX }}:${{ github.sha }}
             ${{ env.IMAGE_PREFIX }}:${{ env.TAG }}
             ${{ env.IMAGE_PREFIX }}:latest
+
+      # ======================
+      # 步骤 8：构建并推送【root 版镜像】
+      # ======================
       - 
         name: Build and Push container images (root)
         uses: docker/build-push-action@v6
@@ -68,7 +109,7 @@ jobs:
           context: .
           file: ./Dockerfile
           platforms: linux/amd64,linux/arm64
-          target: root
+          target: root         # root 权限版
           build-args: |
             VERSION=${{ env.TAG }}
             GIT_COMMIT=${{ github.sha }}
@@ -78,6 +119,11 @@ jobs:
             ${{ env.IMAGE_PREFIX }}:${{ github.sha }}-root
             ${{ env.IMAGE_PREFIX }}:${{ env.TAG }}-root
             ${{ env.IMAGE_PREFIX }}:latest-root
+
+      # ======================
+      # 步骤 9：构建【全平台二进制】
+      # 使用 Dockerfile.redist
+      # ======================
       -
         name: Build binaries for multiple environments
         uses: docker/build-push-action@v6
@@ -92,13 +138,27 @@ jobs:
           push: false
           tags: |
            openfaas/faas-cli:${{ env.TAG }}
+
+      # ======================
+      # 步骤 10：从镜像中提取所有二进制
+      # Linux/macOS/Windows/ARM
+      # ======================
       - 
         name: Copy binaries to host
         run: ./extract_binaries.sh ${{ env.TAG }}
+
+      # ======================
+      # 步骤 11：生成 SHA256 校验文件
+      # 用于验证文件完整性
+      # ======================
       - 
         name: Create SHA of binaries
         run: cd bin && ../ci/hashgen.sh && cd ../
 
+      # ======================
+      # 步骤 12：上传所有二进制 + 校验文件
+      # 自动上传到 GitHub Release
+      # ======================
       - name: Upload binaries and their SHA to Github Release
         uses: alexellis/upload-assets@0.4.0
         env:
