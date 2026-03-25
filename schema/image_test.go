@@ -1,5 +1,7 @@
 package schema
 
+// 测试
+
 import "testing"
 
 func Test_BuildImageName_DefaultFormat(t *testing.T) {

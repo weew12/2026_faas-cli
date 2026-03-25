@@ -3,7 +3,7 @@
 
 package schema
 
-// Metadata metadata of the object
+// Metadata 资源元数据
 type Metadata struct {
 	Name        string            `yaml:"name,omitempty"`
 	Namespace   string            `yaml:"namespace,omitempty"`

@@ -3,7 +3,7 @@
 
 package v2
 
-// StoreFunction represents a multi-arch function in the store
+// StoreFunction 表示应用商店中的一个多架构函数
 type StoreFunction struct {
 	Icon                   string            `json:"icon"`
 	Author                 string            `json:"author,omitempty"`
@@ -19,13 +19,13 @@ type StoreFunction struct {
 	Images                 map[string]string `json:"images"`
 }
 
-// GetImageName get image name of function for a platform
+// GetImageName 根据平台名称获取对应的函数镜像名称
 func (s *StoreFunction) GetImageName(platform string) string {
 	imageName, _ := s.Images[platform]
 	return imageName
 }
 
-// Store represents an item of store for version 2
+// Store 表示 v2 版本的应用商店列表结构
 type Store struct {
 	Version   string          `json:"version"`
 	Functions []StoreFunction `json:"functions"`

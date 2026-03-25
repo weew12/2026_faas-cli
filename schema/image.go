@@ -5,30 +5,30 @@ import (
 	"strings"
 )
 
-// BuildFormat defines the docker image tag format that is used during the build process
+// BuildFormat 定义构建过程中使用的 Docker 镜像标签格式
 type BuildFormat int
 
-// DefaultFormat as defined in the YAML file or appending :latest
+// DefaultFormat 使用 YAML 文件中定义的格式，或追加 :latest
 const DefaultFormat BuildFormat = 0
 
-// SHAFormat uses "latest-<sha>" as the docker tag
+// SHAFormat 使用 "latest-<sha>" 作为镜像标签
 const SHAFormat BuildFormat = 1
 
-// BranchAndSHAFormat uses "latest-<branch>-<sha>" as the docker tag
+// BranchAndSHAFormat 使用 "latest-<branch>-<sha>" 作为镜像标签
 const BranchAndSHAFormat BuildFormat = 2
 
-// DescribeFormat uses the git-describe output as the docker tag
+// DescribeFormat 使用 git-describe 输出作为镜像标签
 const DescribeFormat BuildFormat = 3
 
-// DigestFormat
+// DigestFormat 使用摘要格式作为镜像标签
 const DigestFormat BuildFormat = 4
 
-// Type implements pflag.Value
+// Type 实现 pflag.Value 接口
 func (i *BuildFormat) Type() string {
 	return "string"
 }
 
-// String implements Stringer
+// String 实现 fmt.Stringer 接口
 func (i *BuildFormat) String() string {
 	if i == nil {
 		return "latest"
@@ -48,7 +48,7 @@ func (i *BuildFormat) String() string {
 	}
 }
 
-// Set implements pflag.Value
+// Set 实现 pflag.Value 接口
 func (i *BuildFormat) Set(value string) error {
 	switch strings.ToLower(value) {
 	case "", "default", "latest":
@@ -67,7 +67,7 @@ func (i *BuildFormat) Set(value string) error {
 	return nil
 }
 
-// BuildImageName builds a Docker image tag for build, push or deploy
+// BuildImageName 为构建、推送、部署生成 Docker 镜像标签
 func BuildImageName(format BuildFormat, image string, version string, branch string) string {
 	imageVal := image
 	splitImage := strings.Split(image, "/")
@@ -81,8 +81,6 @@ func BuildImageName(format BuildFormat, image string, version string, branch str
 	case BranchAndSHAFormat:
 		return imageVal + "-" + branch + "-" + version
 	case DescribeFormat:
-		// should we trim the existing image tag and do a proper replace with
-		// the describe describe value
 		return imageVal + "-" + version
 	case DigestFormat:
 

@@ -1,6 +1,6 @@
 package schema
 
-// StoreItem represents an item of store
+// StoreItem 表示应用商店中的一个函数项
 type StoreItem struct {
 	Icon                   string            `json:"icon"`
 	Title                  string            `json:"title"`
