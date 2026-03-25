@@ -1,5 +1,8 @@
 package proxy
 
+// 测试 createSystemEndpoint 方法
+// 测试 createFunctionEndpoint 方法
+
 import (
 	"testing"
 )

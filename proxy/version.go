@@ -14,7 +14,7 @@ import (
 	"github.com/openfaas/faas/gateway/types"
 )
 
-// GetSystemInfo get system information from /system/info endpoint
+// GetSystemInfo 从 /system/info 端点获取系统信息
 func (c *Client) GetSystemInfo(ctx context.Context) (types.GatewayInfo, error) {
 	infoEndPoint := "/system/info"
 	var info types.GatewayInfo

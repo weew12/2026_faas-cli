@@ -15,24 +15,24 @@ import (
 	"github.com/openfaas/faas-cli/version"
 )
 
-// Client an API client to perform all operations
+// Client 用于执行所有操作的 API 客户端
 type Client struct {
 	httpClient *http.Client
-	//ClientAuth a type implementing ClientAuth interface for client authentication
+	// ClientAuth 实现了 ClientAuth 接口的客户端认证类型
 	ClientAuth ClientAuth
-	//GatewayURL base URL of OpenFaaS gateway
+	// GatewayURL OpenFaaS 网关的基础 URL
 	GatewayURL *url.URL
-	//UserAgent user agent for the client
+	// UserAgent 客户端使用的用户代理
 	UserAgent string
 }
 
-// ClientAuth an interface for client authentication.
-// to add authentication to the client implement this interface
+// ClientAuth 客户端认证接口。
+// 若要为客户端添加认证方式，请实现此接口
 type ClientAuth interface {
 	Set(req *http.Request) error
 }
 
-// NewClient initializes a new API client
+// NewClient 初始化一个新的 API 客户端
 func NewClient(auth ClientAuth, gatewayURL string, transport http.RoundTripper, timeout *time.Duration) (*Client, error) {
 	gatewayURL = strings.TrimRight(gatewayURL, "/")
 	baseURL, err := url.Parse(gatewayURL)
@@ -57,11 +57,11 @@ func NewClient(auth ClientAuth, gatewayURL string, transport http.RoundTripper, 
 	}, nil
 }
 
-// newRequest create a new HTTP request with authentication
+// newRequest 创建一个带有认证的新 HTTP 请求
 func (c *Client) newRequest(method, path string, query url.Values, body io.Reader) (*http.Request, error) {
 
-	// deep copy gateway url and then add the supplied path  and args to the copy so that
-	// we preserve the original gateway URL as much as possible
+	// 深度拷贝网关地址，然后将路径与参数追加到副本上
+	// 最大程度保留原始网关 URL
 	endpoint, err := url.Parse(c.GatewayURL.String())
 	if err != nil {
 		return nil, err
@@ -128,7 +128,7 @@ func (c *Client) newRequest(method, path string, query url.Values, body io.Reade
 	return req, err
 }
 
-// doRequest perform an HTTP request with context
+// doRequest 执行带有上下文的 HTTP 请求
 func (c *Client) doRequest(ctx context.Context, req *http.Request) (*http.Response, error) {
 	req = req.WithContext(ctx)
 
@@ -166,7 +166,7 @@ func addQueryParams(u string, params map[string]string) (string, error) {
 	return parsedURL.String(), nil
 }
 
-// AddCheckRedirect add CheckRedirect to the client
+// AddCheckRedirect 为客户端添加重定向检查
 func (c *Client) AddCheckRedirect(checkRedirect func(*http.Request, []*http.Request) error) {
 	c.httpClient.CheckRedirect = checkRedirect
 }

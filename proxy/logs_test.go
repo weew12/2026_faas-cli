@@ -1,5 +1,7 @@
 package proxy
 
+// 测试 GetLogs 方法
+
 import (
 	"context"
 	"encoding/json"

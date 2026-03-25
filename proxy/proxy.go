@@ -10,12 +10,12 @@ import (
 	"time"
 )
 
-// MakeHTTPClient makes a HTTP client with good defaults for timeouts.
+// MakeHTTPClient 创建一个带有合理超时默认值的 HTTP 客户端
 func MakeHTTPClient(timeout *time.Duration, tlsInsecure bool) http.Client {
 	return makeHTTPClientWithDisableKeepAlives(timeout, tlsInsecure, false)
 }
 
-// makeHTTPClientWithDisableKeepAlives makes a HTTP client with good defaults for timeouts.
+// makeHTTPClientWithDisableKeepAlives 创建一个带有合理超时默认值的 HTTP 客户端，支持禁用长连接
 func makeHTTPClientWithDisableKeepAlives(timeout *time.Duration, tlsInsecure bool, disableKeepAlives bool) http.Client {
 	client := http.Client{}
 

@@ -10,7 +10,7 @@ import (
 	"net/url"
 )
 
-// ListNamespaces lists available function namespaces
+// ListNamespaces 列出可用的函数命名空间
 func (c *Client) ListNamespaces(ctx context.Context) ([]string, error) {
 	var namespaces []string
 	c.AddCheckRedirect(func(req *http.Request, via []*http.Request) error {

@@ -15,7 +15,7 @@ import (
 	types "github.com/openfaas/faas-provider/types"
 )
 
-// ListFunctions list deployed functions
+// ListFunctions 列出已部署的函数
 func (c *Client) ListFunctions(ctx context.Context, namespace string) ([]types.FunctionStatus, error) {
 	var (
 		results []types.FunctionStatus

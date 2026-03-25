@@ -15,7 +15,7 @@ import (
 	"github.com/openfaas/faas-provider/types"
 )
 
-// DeleteFunction delete a function from the OpenFaaS server
+// DeleteFunction 从 OpenFaaS 服务端删除一个函数
 func (c *Client) DeleteFunction(ctx context.Context, functionName string, namespace string) error {
 	var err error
 	delReq := types.DeleteFunctionRequest{

@@ -13,7 +13,7 @@ import (
 	types "github.com/openfaas/faas-provider/types"
 )
 
-// ScaleFunction scale a function
+// ScaleFunction 缩放函数
 func (c *Client) ScaleFunction(ctx context.Context, functionName, namespace string, replicas uint64) error {
 
 	scaleReq := types.ScaleServiceRequest{

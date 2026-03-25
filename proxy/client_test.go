@@ -1,5 +1,7 @@
 package proxy
 
+// 测试 client
+
 import (
 	"net/url"
 	"testing"

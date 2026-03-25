@@ -22,13 +22,13 @@ var (
 	defaultCommandTimeout = 60 * time.Second
 )
 
-// FunctionResourceRequest defines a request to set function resources
+// FunctionResourceRequest 定义用于设置函数资源的请求体
 type FunctionResourceRequest struct {
 	Limits   *stack.FunctionResources
 	Requests *stack.FunctionResources
 }
 
-// DeployFunctionSpec defines the spec used when deploying a function
+// DeployFunctionSpec 定义部署函数时使用的规格
 type DeployFunctionSpec struct {
 	FProcess                string
 	FunctionName            string
@@ -58,8 +58,8 @@ func generateFuncStr(spec *DeployFunctionSpec) string {
 	return spec.FunctionName
 }
 
-// DeployFunction first tries to deploy a function and if it exists will then attempt
-// a rolling update. Warnings are suppressed for the second API call (if required.)
+// DeployFunction 首先尝试部署函数，如果函数已存在则尝试滚动更新。
+// 第二次调用 API 时会抑制警告（如果需要）。
 func (c *Client) DeployFunction(context context.Context, spec *DeployFunctionSpec) int {
 
 	rollingUpdateInfo := fmt.Sprintf("Function %s already exists, attempting rolling-update.", spec.FunctionName)
@@ -77,11 +77,11 @@ func (c *Client) DeployFunction(context context.Context, spec *DeployFunctionSpe
 	return statusCode
 }
 
-// deploy a function to an OpenFaaS gateway over REST
+// deploy 通过 REST 向 OpenFaaS 网关部署函数
 func (c *Client) deploy(context context.Context, spec *DeployFunctionSpec, update bool) (int, string) {
 
 	var deployOutput string
-	// Need to alter Gateway to allow nil/empty string as fprocess, to avoid this repetition.
+	// 需要修改网关以允许 nil/空字符串作为 fprocess，从而避免这种重复代码。
 	var fprocessTemplate string
 	if len(spec.FProcess) > 0 {
 		fprocessTemplate = spec.FProcess

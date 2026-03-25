@@ -1,3 +1,6 @@
+// Copyright (c) Alex Ellis 2017. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 package proxy
 
 import (
@@ -16,7 +19,7 @@ import (
 	"github.com/openfaas/faas-provider/logs"
 )
 
-// GetLogs return stream for the logs
+// GetLogs 获取日志流
 func (c *Client) GetLogs(ctx context.Context, params logs.Request) (<-chan logs.Message, error) {
 
 	logRequest, err := c.newRequest(http.MethodGet, "/system/logs", url.Values{}, nil)
@@ -67,6 +70,7 @@ func (c *Client) GetLogs(ctx context.Context, params logs.Request) (<-chan logs.
 	return logStream, nil
 }
 
+// reqAsQueryValues 将日志请求参数转换为 URL 查询参数
 func reqAsQueryValues(r logs.Request) url.Values {
 	query := url.Values{}
 	query.Add("name", r.Name)
@@ -89,6 +93,7 @@ func reqAsQueryValues(r logs.Request) url.Values {
 	return query
 }
 
+// makeStreamingHTTPClient 创建用于流式传输的 HTTP 客户端
 func makeStreamingHTTPClient(tlsInsecure bool) http.Client {
 	client := http.Client{}
 

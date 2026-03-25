@@ -13,6 +13,7 @@ const (
 	scalePath      = "/system/scale-function"
 )
 
+// createSystemEndpoint 创建系统管理函数的 API 地址
 func createSystemEndpoint(gateway, namespace string) (string, error) {
 	gatewayURL, err := url.Parse(gateway)
 	if err != nil {
@@ -27,6 +28,7 @@ func createSystemEndpoint(gateway, namespace string) (string, error) {
 	return gatewayURL.String(), nil
 }
 
+// createFunctionEndpoint 创建单个函数管理的 API 地址
 func createFunctionEndpoint(gateway, functionName, namespace string) (string, error) {
 	gatewayURL, err := url.Parse(gateway)
 	if err != nil {
@@ -41,6 +43,7 @@ func createFunctionEndpoint(gateway, functionName, namespace string) (string, er
 	return gatewayURL.String(), nil
 }
 
+// createNamespacesEndpoint 创建命名空间查询的 API 地址
 func createNamespacesEndpoint(gateway string) (string, error) {
 	gatewayURL, err := url.Parse(gateway)
 	if err != nil {

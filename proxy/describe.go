@@ -15,7 +15,7 @@ import (
 	types "github.com/openfaas/faas-provider/types"
 )
 
-// GetFunctionInfo get an OpenFaaS function information
+// GetFunctionInfo 获取一个 OpenFaaS 函数的信息
 func (c *Client) GetFunctionInfo(ctx context.Context, functionName string, namespace string) (types.FunctionStatus, error) {
 	var (
 		result types.FunctionStatus
@@ -27,7 +27,7 @@ func (c *Client) GetFunctionInfo(ctx context.Context, functionName string, names
 		values.Set("namespace", namespace)
 	}
 
-	// Request CPU/RAM usage if available
+	// 如果可用，请求 CPU/RAM 使用情况
 	values.Set("usage", "1")
 
 	queryPath := path.Join(functionPath, functionName)

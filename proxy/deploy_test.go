@@ -3,6 +3,8 @@
 
 package proxy
 
+// 测试 DeployFunction 方法
+
 import (
 	"context"
 	"net/http"

@@ -1,3 +1,6 @@
+// Copyright (c) OpenFaaS Author(s) 2018. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 package proxy
 
 import (
@@ -16,7 +19,7 @@ type StoreResult struct {
 	Functions []v2.StoreFunction `json:"functions"`
 }
 
-// FunctionStoreList returns functions from a store URL
+// FunctionStoreList 从应用商店 URL 返回函数列表
 func FunctionStoreList(store string) ([]v2.StoreFunction, error) {
 
 	var storeResults StoreResult

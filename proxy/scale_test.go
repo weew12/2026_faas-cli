@@ -1,5 +1,7 @@
 package proxy
 
+// 测试 ScaleFunction 方法
+
 import (
 	"context"
 	"fmt"

@@ -17,7 +17,7 @@ import (
 	"github.com/openfaas/faas-cli/version"
 )
 
-// InvokeFunction a function
+// InvokeFunction 调用一个函数
 func InvokeFunction(gateway string, name string, bytesIn *[]byte, contentType string, query []string, headers []string, async bool, httpMethod string, tlsInsecure bool, namespace string) (*[]byte, error) {
 	var resBytes []byte
 
@@ -64,7 +64,7 @@ func InvokeFunction(gateway string, name string, bytesIn *[]byte, contentType st
 	req.Header.Set("User-Agent", fmt.Sprintf("faas-cli/%s (openfaas; %s; %s)", version.BuildVersion(), runtime.GOOS, runtime.GOARCH))
 
 	req.Header.Add("Content-Type", contentType)
-	// Add additional headers to request
+	// 向请求添加额外请求头
 	for name, value := range headerMap {
 		req.Header.Add(name, value)
 	}
@@ -128,7 +128,7 @@ func buildQueryString(query []string) (string, error) {
 	return qs, nil
 }
 
-// parseHeaders parses header values from command
+// parseHeaders 从命令解析请求头参数
 func parseHeaders(headers []string) (map[string]string, error) {
 	headerMap := make(map[string]string)
 
@@ -152,7 +152,7 @@ func parseHeaders(headers []string) (map[string]string, error) {
 	return headerMap, nil
 }
 
-// validateMethod validates the HTTP request method
+// validateHTTPMethod 验证 HTTP 请求方法是否合法
 func validateHTTPMethod(httpMethod string) error {
 	var allowedMethods = []string{
 		http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,

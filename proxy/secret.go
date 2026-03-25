@@ -16,7 +16,7 @@ const (
 	secretEndpoint = "/system/secrets"
 )
 
-// GetSecretList get secrets list
+// GetSecretList 获取密钥列表
 func (c *Client) GetSecretList(ctx context.Context, namespace string) ([]types.Secret, error) {
 	var (
 		results    []types.Secret
