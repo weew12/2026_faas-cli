@@ -1,5 +1,7 @@
 # npm
 
+基于 npm 安装 OpenFaaS CLI
+
 Status: the OpenFaaS CLI is not yet available on `npm`, but will be coming soon.
 
 @openfaas/faas-cli [![NPM version](https://img.shields.io/npm/v/@openfaas/faas-cli.svg?style=flat)](https://www.npmjs.com/package/@openfaas/faas-cli) [![NPM monthly downloads](https://img.shields.io/npm/dm/@openfaas/faas-cli.svg?style=flat)](https://npmjs.org/package/@openfaas/faas-cli) [![NPM total downloads](https://img.shields.io/npm/dt/@openfaas/faas-cli.svg?style=flat)](https://npmjs.org/package/@openfaas/faas-cli)
