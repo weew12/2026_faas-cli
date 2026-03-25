@@ -1,6 +1,8 @@
 // Copyright (c) Alex Ellis 2017. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+// Package commands 实现 OpenFaaS CLI 命令行工具的所有命令逻辑
+// 本文件实现 publish 命令，用于**构建并推送多架构函数镜像**，基于 Docker buildx
 package commands
 
 import (
@@ -20,25 +22,27 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// 全局命令行参数
 var (
-	platforms            string
-	extraTags            []string
-	resetQemu            bool
-	mountSSH             bool
-	remoteBuilder        string
-	payloadSecretPath    string
-	builderPublicKeyPath string
-	builderKeyID         string
+	platforms            string   // 多架构平台列表，例如 linux/amd64,linux/arm64
+	extraTags            []string // 额外的镜像标签
+	resetQemu            bool     // 重置 QEMU 以支持跨架构构建
+	mountSSH             bool     // 挂载 SSH 密钥（用于私有仓库拉取）
+	remoteBuilder        string   // 远程构建器地址
+	payloadSecretPath    string   // 负载密钥路径
+	builderPublicKeyPath string   // 构建器公钥路径
+	builderKeyID         string   // 构建器密钥ID
 )
 
+// init 初始化 publish 命令的所有参数并注册到主命令
 func init() {
-	// Setup flags that are used by multiple commands (variables defined in faas.go)
+	// 通用构建参数（与 build 命令共用）
 	publishCmd.Flags().StringVar(&image, "image", "", "Docker image name to build")
 	publishCmd.Flags().StringVar(&handler, "handler", "", "Directory with handler for function, e.g. handler.js")
 	publishCmd.Flags().StringVar(&functionName, "name", "", "Name of the deployed function")
 	publishCmd.Flags().StringVar(&language, "lang", "", "Programming language template")
 
-	// Setup flags that are used only by this command (variables defined above)
+	// 专属构建参数
 	publishCmd.Flags().BoolVar(&nocache, "no-cache", false, "Do not use Docker's build cache")
 	publishCmd.Flags().BoolVar(&squash, "squash", false, `Use Docker's squash flag for smaller images [experimental] `)
 	publishCmd.Flags().IntVar(&parallel, "parallel", 1, "Build in parallel to depth specified.")
@@ -51,6 +55,8 @@ func init() {
 	publishCmd.Flags().BoolVar(&envsubst, "envsubst", true, "Substitute environment variables in stack.yaml file")
 	publishCmd.Flags().BoolVar(&quietBuild, "quiet", false, "Perform a quiet build, without showing output from Docker")
 	publishCmd.Flags().BoolVar(&disableStackPull, "disable-stack-pull", false, "Disables the template configuration in the stack.yaml")
+
+	// 多架构与远程构建专属参数
 	publishCmd.Flags().StringVar(&platforms, "platforms", "linux/amd64", "A set of platforms to publish")
 	publishCmd.Flags().StringArrayVar(&extraTags, "extra-tag", []string{}, "Additional extra image tag")
 	publishCmd.Flags().BoolVar(&resetQemu, "reset-qemu", false, "Runs \"docker run multiarch/qemu-user-static --reset -p yes\" to enable multi-arch builds. Compatible with AMD64 machines only.")
@@ -62,13 +68,14 @@ func init() {
 	publishCmd.Flags().BoolVar(&pullDebug, "debug", false, "Enable debug output when pulling templates")
 	publishCmd.Flags().BoolVar(&overwrite, "overwrite", true, "Overwrite existing templates from the template repository")
 
-	// Set bash-completion.
+	// Bash 自动补全配置
 	_ = publishCmd.Flags().SetAnnotation("handler", cobra.BashCompSubdirsInDir, []string{})
 
 	faasCmd.AddCommand(publishCmd)
 }
 
-// publishCmd allows the user to build an OpenFaaS function container
+// publishCmd 构建并推送多架构 OpenFaaS 容器镜像
+// 基于 Docker buildx，用于生产环境发布，本地不会保留镜像
 var publishCmd = &cobra.Command{
 	Use: `publish -f YAML_FILE [--no-cache] [--squash]
   faas-cli publish --image IMAGE_NAME
@@ -110,7 +117,7 @@ See also: faas-cli build`,
 	RunE:    runPublish,
 }
 
-// preRunPublish validates args & flags
+// preRunPublish 命令前置检查：验证参数、解析构建参数、校验语言模板
 func preRunPublish(cmd *cobra.Command, args []string) error {
 	applyRemoteBuilderEnvironment()
 
@@ -135,6 +142,7 @@ func preRunPublish(cmd *cobra.Command, args []string) error {
 	return err
 }
 
+// runPublish 发布命令主入口：解析配置、拉取模板、初始化构建环境、执行发布
 func runPublish(cmd *cobra.Command, args []string) error {
 	var services stack.Services
 
@@ -152,11 +160,13 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	cwd, _ := os.Getwd()
 	templatesPath := filepath.Join(cwd, TemplateDirectory)
 
+	// 检查缺失的函数模板
 	missingTemplates, err := getMissingTemplates(services.Functions, templatesPath)
 	if err != nil {
 		return fmt.Errorf("error accessing existing templates folder: %s", err.Error())
 	}
 
+	// 从 stack.yaml 配置拉取模板
 	if len(services.StackConfiguration.TemplateConfigs) > 0 && !disableStackPull {
 		if err := pullStackTemplates(missingTemplates, services.StackConfiguration.TemplateConfigs, cmd); err != nil {
 			return fmt.Errorf("error pulling templates: %s", err.Error())
@@ -165,9 +175,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 			log.Printf("Pulled templates: %v", missingTemplates)
 		}
 	} else {
-		// When the configuration.templates section is empty, it's only possible to pull from the store
-		// this store can be overridden by a flag or environment variable
-
+		// 从官方模板仓库拉取缺失模板
 		for _, missingTemplate := range missingTemplates {
 			if err := runTemplateStorePull(cmd, []string{missingTemplate}); err != nil {
 				return fmt.Errorf("error pulling template: %s", err.Error())
@@ -175,6 +183,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// 重置 QEMU 以支持跨架构构建
 	if resetQemu {
 
 		task := v2execute.ExecTask{
@@ -203,6 +212,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Ran qemu-user-static --reset. OK.\n")
 	}
 
+	// 本地构建：创建 buildx 多架构构建节点
 	if len(remoteBuilder) == 0 {
 		task := v2execute.ExecTask{
 			Command: "docker",
@@ -227,6 +237,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		fmt.Printf("Created buildx node: \"multiarch\"\n")
 	}
 
+	// 二次检查并拉取模板
 	if len(services.StackConfiguration.TemplateConfigs) != 0 && !disableStackPull {
 		newTemplateInfos, err := getMissingTemplates(services.Functions, "./template")
 		if err != nil {
@@ -238,6 +249,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// 并行执行多架构构建与推送
 	errors := publish(&services, parallel, shrinkwrap, quietBuild, mountSSH)
 	if len(errors) > 0 {
 		errorSummary := "Errors received during build:\n"
@@ -249,6 +261,7 @@ func runPublish(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// publish 并行工作池实现：批量构建并发布多架构函数镜像
 func publish(services *stack.Services, queueDepth int, shrinkwrap, quietBuild, mountSSH bool) []error {
 	startOuter := time.Now()
 
@@ -268,9 +281,12 @@ func publish(services *stack.Services, queueDepth int, shrinkwrap, quietBuild, m
 				if len(function.Language) == 0 {
 					fmt.Println("Please provide a valid language for your function.")
 				} else {
+					// 合并全局与函数级别的构建参数
 					combinedBuildOptions := combineBuildOpts(function.BuildOptions, buildOptions)
 					combinedBuildArgMap := util.MergeMap(function.BuildArgs, buildArgMap)
 					combinedExtraPaths := util.MergeSlice(services.StackConfiguration.CopyExtraPaths, copyExtra)
+
+					// 调用核心构建逻辑：多架构构建 + 推送
 					err := builder.PublishImage(function.Image,
 						function.Handler,
 						function.Name,
@@ -308,6 +324,7 @@ func publish(services *stack.Services, queueDepth int, shrinkwrap, quietBuild, m
 
 	}
 
+	// 将函数任务发送到工作通道
 	for k, function := range services.Functions {
 		if function.SkipBuild {
 			fmt.Printf("Skipping build of: %s.\n", function.Name)

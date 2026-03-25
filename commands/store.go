@@ -1,6 +1,8 @@
 // Copyright (c) Alex Ellis 2017. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+// Package commands 实现 OpenFaaS CLI 命令行工具的所有命令逻辑
+// 本文件提供函数商店（store）公共工具方法，用于获取、过滤、查询商店函数
 package commands
 
 import (
@@ -16,14 +18,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// 全局命令行参数与配置
 var (
-	storeAddress     string
-	verbose          bool
-	storeDeployFlags DeployFlags
-	//Platform platform variable set at build time
-	Platform string
-	// if the CLI is built using buildx, then the Platform value needs to be mapped to
-	// one of the supported values used in the store.
+	storeAddress     string      // 函数商店 API 地址
+	verbose          bool        // 详细输出模式
+	storeDeployFlags DeployFlags // 部署商店函数时的参数
+	Platform         string      // 编译时注入的目标平台
+
+	// shortPlatform 长平台名与商店短平台名映射表
 	shortPlatform = map[string]string{
 		"linux/arm/v6": "armhf",
 		"linux/amd64":  "x86_64",
@@ -32,12 +34,13 @@ var (
 )
 
 const (
-	defaultStore      = "https://raw.githubusercontent.com/openfaas/store/master/functions.json"
-	maxDescriptionLen = 40
+	defaultStore      = "https://raw.githubusercontent.com/openfaas/store/master/functions.json" // 默认官方商店地址
+	maxDescriptionLen = 40                                                                       // 函数描述最大展示长度
 )
 
-var platformValue string
+var platformValue string // 命令行传入的平台参数
 
+// init 初始化 store 根命令，注册全局标志并添加到根命令
 func init() {
 	storeCmd.PersistentFlags().StringVarP(&storeAddress, "url", "u", defaultStore, "Alternative Store URL starting with http(s)://")
 	storeCmd.PersistentFlags().StringVarP(&platformValue, "platform", "p", Platform, "Target platform for store")
@@ -45,12 +48,15 @@ func init() {
 	faasCmd.AddCommand(storeCmd)
 }
 
+// storeCmd OpenFaaS 函数商店根命令，用于浏览、部署商店中的函数
 var storeCmd = &cobra.Command{
 	Use:   `store`,
 	Short: "OpenFaaS store commands",
 	Long:  "Allows browsing and deploying OpenFaaS functions from a store",
 }
 
+// storeList 从商店 URL 获取函数列表
+// 发起 HTTP 请求并解析商店 V2 版本 JSON 数据
 func storeList(store string) ([]storeV2.StoreFunction, error) {
 
 	var storeData storeV2.Store
@@ -69,7 +75,7 @@ func storeList(store string) ([]storeV2.StoreFunction, error) {
 
 	if res.Body != nil {
 		defer func() {
-			_, _ = io.Copy(io.Discard, res.Body) // drain to EOF
+			_, _ = io.Copy(io.Discard, res.Body) // 排空响应体
 			_ = res.Body.Close()
 		}()
 	}
@@ -95,6 +101,8 @@ func storeList(store string) ([]storeV2.StoreFunction, error) {
 	return storeData.Functions, nil
 }
 
+// filterStoreList 根据平台过滤商店函数列表
+// 只返回支持指定平台的函数
 func filterStoreList(functions []storeV2.StoreFunction, platform string) []storeV2.StoreFunction {
 	var filteredList []storeV2.StoreFunction
 
@@ -110,7 +118,8 @@ func filterStoreList(functions []storeV2.StoreFunction, platform string) []store
 	return filteredList
 }
 
-// getValueIgnoreCase get a key value from map by ignoring case for key
+// getValueIgnoreCase 忽略大小写从 map 中获取值
+// 用于兼容平台名称大小写差异
 func getValueIgnoreCase(kv map[string]string, key string) (string, bool) {
 	for k, v := range kv {
 		if strings.EqualFold(k, key) {
@@ -120,6 +129,7 @@ func getValueIgnoreCase(kv map[string]string, key string) (string, bool) {
 	return "", false
 }
 
+// storeFindFunction 在函数列表中按名称/标题查找函数
 func storeFindFunction(functionName string, storeItems []storeV2.StoreFunction) *storeV2.StoreFunction {
 	var item storeV2.StoreFunction
 
@@ -132,6 +142,8 @@ func storeFindFunction(functionName string, storeItems []storeV2.StoreFunction) 
 	return nil
 }
 
+// getPlatform 获取当前 CLI 构建时的平台
+// 未指定则返回默认平台 x86_64
 func getPlatform() string {
 	if len(Platform) == 0 {
 		return mainPlatform
@@ -139,6 +151,8 @@ func getPlatform() string {
 	return Platform
 }
 
+// getTargetPlatform 获取最终使用的目标平台
+// 自动将长平台名映射为商店支持的短名称
 func getTargetPlatform(inputPlatform string) string {
 	if len(inputPlatform) == 0 {
 		currentPlatform := getPlatform()
@@ -151,6 +165,7 @@ func getTargetPlatform(inputPlatform string) string {
 	return inputPlatform
 }
 
+// getStorePlatforms 获取商店中所有函数支持的平台列表（去重）
 func getStorePlatforms(functions []storeV2.StoreFunction) []string {
 	var distinctPlatformMap = make(map[string]bool)
 	var result []string

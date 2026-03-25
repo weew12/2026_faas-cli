@@ -1,3 +1,5 @@
+// Package commands 实现 OpenFaaS CLI 命令行工具的所有命令逻辑
+// 本文件实现 template pull stack 命令，从 stack.yml 自动拉取所有依赖的函数模板
 package commands
 
 import (
@@ -10,11 +12,13 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// 全局命令行参数
 var (
-	templateURL    string
-	customRepoName string
+	templateURL    string // 模板仓库URL
+	customRepoName string // 自定义仓库名称
 )
 
+// init 初始化 template pull stack 命令，注册参数并添加到父命令
 func init() {
 	templatePullStackCmd.Flags().BoolVar(&overwrite, "overwrite", true, "Overwrite existing templates?")
 	templatePullStackCmd.Flags().BoolVar(&pullDebug, "debug", false, "Enable debug output")
@@ -22,6 +26,7 @@ func init() {
 	templatePullCmd.AddCommand(templatePullStackCmd)
 }
 
+// templatePullStackCmd 从函数 YAML 定义文件中读取并下载所需模板
 var templatePullStackCmd = &cobra.Command{
 	Use:   `stack`,
 	Short: `Downloads templates specified in the function definition yaml file`,
@@ -35,6 +40,7 @@ var templatePullStackCmd = &cobra.Command{
 	RunE: runTemplatePullStack,
 }
 
+// runTemplatePullStack 执行拉取 stack.yml 配置模板的入口函数
 func runTemplatePullStack(cmd *cobra.Command, args []string) error {
 	templatesConfig, err := loadTemplateConfig()
 	if err != nil {
@@ -44,6 +50,7 @@ func runTemplatePullStack(cmd *cobra.Command, args []string) error {
 	return pullConfigTemplates(templatesConfig)
 }
 
+// loadTemplateConfig 加载 stack.yml 中的模板仓库配置
 func loadTemplateConfig() ([]stack.TemplateSource, error) {
 	stackConfig, err := readStackConfig()
 	if err != nil {
@@ -52,6 +59,7 @@ func loadTemplateConfig() ([]stack.TemplateSource, error) {
 	return stackConfig.StackConfig.TemplateConfigs, nil
 }
 
+// readStackConfig 读取并解析 stack.yml 配置文件
 func readStackConfig() (stack.Configuration, error) {
 	configField := stack.Configuration{}
 
@@ -69,6 +77,7 @@ func readStackConfig() (stack.Configuration, error) {
 	return configField, nil
 }
 
+// pullConfigTemplates 批量拉取配置文件中的所有模板
 func pullConfigTemplates(templateSources []stack.TemplateSource) error {
 	for _, config := range templateSources {
 		fmt.Printf("Pulling template: %s from %s\n", config.Name, config.Source)
@@ -80,6 +89,7 @@ func pullConfigTemplates(templateSources []stack.TemplateSource) error {
 	return nil
 }
 
+// pullStackTemplates 根据缺失的模板列表，从仓库或官方模板库拉取模板
 func pullStackTemplates(missingTemplates []string, templateSources []stack.TemplateSource, cmd *cobra.Command) error {
 
 	for _, val := range missingTemplates {
@@ -111,7 +121,7 @@ func pullStackTemplates(missingTemplates []string, templateSources []stack.Templ
 	return nil
 }
 
-// filter templates which are already available on filesystem
+// getMissingTemplates 过滤本地已存在的模板，返回缺失的模板列表
 func getMissingTemplates(functions map[string]stack.Function, templatesDir string) ([]string, error) {
 	var missing []string
 

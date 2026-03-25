@@ -1,6 +1,8 @@
 // Copyright (c) OpenFaaS Author(s) 2019. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+// Package commands 实现 OpenFaaS CLI 命令行工具的所有命令逻辑
+// 本文件实现 secret apply 命令，用于批量同步本地 .secrets 目录下的密钥到网关
 package commands
 
 import (
@@ -16,6 +18,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// secretApplyCmd 批量应用本地 .secrets 目录中的所有密钥
+// 会自动同步文件名为密钥名，覆盖网关中已存在的同名密钥
 var secretApplyCmd = &cobra.Command{
 	Use:   `apply [--tls-no-verify]`,
 	Short: "Apply secrets from .secrets folder",
@@ -31,6 +35,7 @@ var secretApplyCmd = &cobra.Command{
 	RunE: runSecretApply,
 }
 
+// init 初始化命令参数并注册到 secret 根命令
 func init() {
 	secretApplyCmd.Flags().StringVarP(&gateway, "gateway", "g", defaultGateway, "Gateway URL starting with http(s)://")
 	secretApplyCmd.Flags().BoolVar(&tlsInsecure, "tls-no-verify", false, "Disable TLS validation")
@@ -41,6 +46,12 @@ func init() {
 	secretCmd.AddCommand(secretApplyCmd)
 }
 
+// runSecretApply 执行批量同步密钥的核心逻辑
+// 1. 连接到 OpenFaaS 网关
+// 2. 检查本地 .secrets 目录是否存在
+// 3. 读取目录下所有文件作为密钥
+// 4. 获取网关现有密钥用于对比
+// 5. 逐个创建/覆盖密钥
 func runSecretApply(cmd *cobra.Command, args []string) error {
 	gatewayAddress := getGatewayURL(gateway, defaultGateway, "", os.Getenv(openFaaSURLEnvironment))
 
@@ -48,6 +59,7 @@ func runSecretApply(cmd *cobra.Command, args []string) error {
 		fmt.Println(msg)
 	}
 
+	// 创建 OpenFaaS 客户端
 	cliAuth, err := proxy.NewCLIAuth(token, gatewayAddress)
 	if err != nil {
 		return err
@@ -58,59 +70,60 @@ func runSecretApply(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// Get the absolute path to .secrets directory
+	// 获取 .secrets 目录的绝对路径
 	secretsPath, err := filepath.Abs(localSecretsDir)
 	if err != nil {
 		return fmt.Errorf("can't determine secrets folder: %w", err)
 	}
 
-	// Check if .secrets directory exists
+	// 检查 .secrets 目录是否存在
 	if _, err := os.Stat(secretsPath); os.IsNotExist(err) {
 		return fmt.Errorf("secrets directory does not exist: %s", secretsPath)
 	}
 
-	// Read all files from .secrets directory
+	// 读取目录下所有文件
 	files, err := os.ReadDir(secretsPath)
 	if err != nil {
 		return fmt.Errorf("failed to read secrets directory: %w", err)
 	}
 
+	// 无密钥时直接返回
 	if len(files) == 0 {
 		fmt.Println("No secrets found in .secrets directory")
 		return nil
 	}
 
-	// Get list of existing secrets from gateway to check if they exist
+	// 获取网关已存在的密钥列表
 	existingSecrets, err := client.GetSecretList(context.Background(), functionNamespace)
 	if err != nil {
 		return fmt.Errorf("failed to get secret list: %w", err)
 	}
 
-	// Create a map of existing secrets for quick lookup
+	// 构建已存在密钥的快速查询 map
 	secretMap := make(map[string]bool)
 	for _, secret := range existingSecrets {
-		// Match by name and namespace
 		if secret.Namespace == functionNamespace {
 			secretMap[secret.Name] = true
 		}
 	}
 
-	// Process each file in .secrets directory
+	// 遍历处理每个密钥文件
 	for _, file := range files {
+		// 跳过子目录
 		if file.IsDir() {
 			continue
 		}
 
 		secretName := file.Name()
 
-		// Validate secret name
+		// 验证密钥名称是否合法
 		isValid, err := validateSecretName(secretName)
 		if !isValid {
 			fmt.Printf("Skipping invalid secret name: %s - %v\n", secretName, err)
 			continue
 		}
 
-		// Read secret file content
+		// 读取密钥文件内容
 		secretFilePath := filepath.Join(secretsPath, secretName)
 		fileData, err := os.ReadFile(secretFilePath)
 		if err != nil {
@@ -118,16 +131,19 @@ func runSecretApply(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
+		// 处理空白字符
 		secretValue := string(fileData)
 		if trimSecret {
 			secretValue = strings.TrimSpace(secretValue)
 		}
 
+		// 跳过空密钥
 		if len(secretValue) == 0 {
 			fmt.Printf("Skipping empty secret: %s\n", secretName)
 			continue
 		}
 
+		// 构造密钥对象
 		secret := types.Secret{
 			Name:      secretName,
 			Namespace: functionNamespace,
@@ -135,7 +151,7 @@ func runSecretApply(cmd *cobra.Command, args []string) error {
 			RawValue:  fileData,
 		}
 
-		// Check if secret exists and delete it if it does
+		// 如果密钥已存在，先删除
 		if secretMap[secretName] {
 			fmt.Printf("Secret %s exists, deleting before recreating...\n", secretName)
 			deleteSecret := types.Secret{
@@ -145,16 +161,15 @@ func runSecretApply(cmd *cobra.Command, args []string) error {
 			err = client.RemoveSecret(context.Background(), deleteSecret)
 			if err != nil {
 				fmt.Printf("Failed to remove existing secret %s: %v\n", secretName, err)
-				// Continue anyway to try creating it
 			}
 		}
 
-		// Create the secret
+		// 创建密钥
 		fmt.Printf("Creating secret: %s.%s\n", secret.Name, functionNamespace)
 		status, output := client.CreateSecret(context.Background(), secret)
 
+		// 冲突时降级为更新操作
 		if status == http.StatusConflict {
-			// If secret still exists (race condition), try update instead
 			fmt.Printf("Secret %s still exists, updating...\n", secretName)
 			_, output = client.UpdateSecret(context.Background(), secret)
 		}

@@ -1,5 +1,5 @@
 // Copyright (c) OpenFaaS Author(s) 2017. All rights reserved.
-// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+// Licensed under the MIT license. See LICENSE file in the root for full license information.
 
 package commands
 
@@ -17,12 +17,14 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// 全局命令行参数变量
 var (
-	username      string
-	password      string
-	passwordStdin bool
+	username      string // 用户名
+	password      string // 密码
+	passwordStdin bool   // 是否从标准输入读取密码
 )
 
+// init 初始化 login 命令，注册所有标志并添加到主命令
 func init() {
 	loginCmd.Flags().StringVarP(&gateway, "gateway", "g", defaultGateway, "Gateway URL starting with http(s)://")
 	loginCmd.Flags().StringVarP(&username, "username", "u", "admin", "Gateway username")
@@ -34,6 +36,7 @@ func init() {
 	faasCmd.AddCommand(loginCmd)
 }
 
+// loginCmd 登录 OpenFaaS 网关，保存认证信息到本地配置
 var loginCmd = &cobra.Command{
 	Use:   `login [--username admin|USERNAME] [--password PASSWORD] [--gateway GATEWAY_URL] [--tls-no-verify]`,
 	Short: "Log in to OpenFaaS gateway",
@@ -44,41 +47,41 @@ var loginCmd = &cobra.Command{
 	RunE: runLogin,
 }
 
+// runLogin 执行登录逻辑
 func runLogin(cmd *cobra.Command, args []string) error {
 
+	// 获取请求超时时间
 	timeout, err := cmd.Flags().GetDuration("timeout")
 	if err != nil {
 		return err
 	}
 
+	// 校验用户名不能为空
 	if len(username) == 0 {
 		return fmt.Errorf("must provide --username or -u")
 	}
 
+	// 处理 --password 参数
 	if len(password) > 0 {
+		// 警告：直接使用 --password 不安全
 		fmt.Println("WARNING! Using --password is insecure, consider using: cat ~/faas_pass.txt | faas-cli login -u user --password-stdin")
+		// --password 和 --password-stdin 不能同时使用
 		if passwordStdin {
 			return fmt.Errorf("--password and --password-stdin are mutually exclusive")
 		}
-
-		if len(username) == 0 {
-			return fmt.Errorf("must provide --username with --password")
-		}
 	}
 
+	// 处理 --password-stdin 从标准输入读取密码
 	if passwordStdin {
-		if len(username) == 0 {
-			return fmt.Errorf("must provide --username with --password-stdin")
-		}
-
-		passwordStdin, err := io.ReadAll(os.Stdin)
+		passwordStdinBytes, err := io.ReadAll(os.Stdin)
 		if err != nil {
 			return err
 		}
-
-		password = strings.TrimSpace(string(passwordStdin))
+		// 去除空格和换行符
+		password = strings.TrimSpace(string(passwordStdinBytes))
 	}
 
+	// 密码去空格并校验非空
 	password = strings.TrimSpace(password)
 	if len(password) == 0 {
 		return fmt.Errorf("must provide a non-empty password via --password or --password-stdin")
@@ -86,27 +89,34 @@ func runLogin(cmd *cobra.Command, args []string) error {
 
 	fmt.Println("Calling the OpenFaaS server to validate the credentials...")
 
+	// 标准化网关地址
 	gateway = getGatewayURL(gateway, defaultGateway, "", os.Getenv(openFaaSURLEnvironment))
 
+	// 验证用户名密码是否正确
 	if err := validateLogin(gateway, username, password, timeout, tlsInsecure); err != nil {
 		return err
 	}
 
+	// 对用户名密码进行 base64 编码
 	token := config.EncodeAuth(username, password)
+	// 构造认证配置
 	authConfig := config.AuthConfig{
 		Gateway: gateway,
 		Token:   token,
 		Auth:    config.BasicAuthType,
 	}
+	// 保存认证信息到本地配置文件
 	if err := config.UpdateAuthConfig(authConfig); err != nil {
 		return err
 	}
 
+	// 读取并验证保存的配置
 	authConfig, err = config.LookupAuthConfig(gateway)
 	if err != nil {
 		return err
 	}
 
+	// 解码并打印成功信息
 	user, _, err := config.DecodeAuth(authConfig.Token)
 	if err != nil {
 		return err
@@ -116,31 +126,39 @@ func runLogin(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// validateLogin 向网关发送请求验证用户名密码是否有效
 func validateLogin(gatewayURL string, user string, pass string, timeout time.Duration, insecureTLS bool) error {
 
+	// 输出 TLS 不安全警告
 	if len(checkTLSInsecure(gatewayURL, insecureTLS)) > 0 {
 		fmt.Println(NoTLSWarn)
 	}
 
-	client := proxy.MakeHTTPClient(&timeout, tlsInsecure)
+	// 创建 HTTP 客户端
+	client := proxy.MakeHTTPClient(&timeout, insecureTLS)
+	// 构造请求：访问 /system/functions 测试认证
 	req, err := http.NewRequest("GET", gatewayURL+"/system/functions", nil)
 	if err != nil {
 		return fmt.Errorf("invalid URL: %s", gatewayURL)
 	}
 
+	// 设置 Basic Auth
 	req.SetBasicAuth(user, pass)
+	// 发送请求
 	res, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("cannot connect to OpenFaaS on URL: %s. %v", gatewayURL, err)
 	}
 
+	// 确保 body 被读取并关闭
 	if res.Body != nil {
 		defer func() {
-			_, _ = io.Copy(io.Discard, res.Body) // drain to EOF
+			_, _ = io.Copy(io.Discard, res.Body)
 			_ = res.Body.Close()
 		}()
 	}
 
+	// 根据状态码判断结果
 	switch res.StatusCode {
 	case http.StatusOK:
 		return nil

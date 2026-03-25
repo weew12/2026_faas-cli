@@ -1,6 +1,8 @@
 // Copyright (c) OpenFaaS Author(s) 2020. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+// Package commands 实现 OpenFaaS CLI 命令行工具的所有命令逻辑
+// 本文件实现 registry-login 命令，用于生成并保存容器镜像仓库的认证配置文件
 package commands
 
 import (
@@ -16,6 +18,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// registryLoginCommand 生成容器镜像仓库认证配置文件
+// 支持标准 Docker 仓库和 AWS ECR，认证信息会保存为 ./credentials/config.json
 var registryLoginCommand = &cobra.Command{
 	Use:          "registry-login",
 	Short:        "Generate and save the registry authentication file",
@@ -24,6 +28,7 @@ var registryLoginCommand = &cobra.Command{
 	PreRunE:      generateRegistryPreRun,
 }
 
+// init 初始化命令参数并注册到主命令 faasCmd
 func init() {
 	registryLoginCommand.Flags().String("server", "https://index.docker.io/v1/", "The server URL, it is defaulted to the docker registry")
 	registryLoginCommand.Flags().StringP("username", "u", "", "The Registry Username")
@@ -37,6 +42,8 @@ func init() {
 	faasCmd.AddCommand(registryLoginCommand)
 }
 
+// generateRegistryPreRun 命令执行前的参数校验
+// 验证所有标志位是否合法，ECR 模式下必须传入 account-id 和 region
 func generateRegistryPreRun(command *cobra.Command, args []string) error {
 	_, err := command.Flags().GetString("server")
 	if err != nil {
@@ -85,6 +92,8 @@ func generateRegistryPreRun(command *cobra.Command, args []string) error {
 	return nil
 }
 
+// generateRegistryAuthFile 执行生成认证文件的核心逻辑
+// 分支处理：标准仓库 / ECR 仓库 / 密码从标准输入读取
 func generateRegistryAuthFile(command *cobra.Command, _ []string) error {
 	ecrEnabled, _ := command.Flags().GetBool("ecr")
 	accountID, _ := command.Flags().GetString("account-id")
@@ -119,8 +128,8 @@ func generateRegistryAuthFile(command *cobra.Command, _ []string) error {
 	return nil
 }
 
+// generateFile 生成普通镜像仓库认证配置并写入文件
 func generateFile(username string, password string, server string) error {
-
 	fileBytes, err := generateRegistryAuth(server, username, password)
 	if err != nil {
 		return err
@@ -128,8 +137,8 @@ func generateFile(username string, password string, server string) error {
 	return writeFileToFassCLITmp(fileBytes)
 }
 
+// generateECRFile 生成 AWS ECR 镜像仓库认证配置并写入文件
 func generateECRFile(accountID string, region string) error {
-
 	fileBytes, err := generateECRRegistryAuth(accountID, region)
 	if err != nil {
 		return err
@@ -138,6 +147,7 @@ func generateECRFile(accountID string, region string) error {
 	return writeFileToFassCLITmp(fileBytes)
 }
 
+// generateRegistryAuth 构造标准 Docker 认证配置（Base64 编码）
 func generateRegistryAuth(server, username, password string) ([]byte, error) {
 	if len(username) == 0 || len(password) == 0 || len(server) == 0 {
 		return nil, errors.New("both --username and (--password-stdin or --password) are required")
@@ -155,6 +165,7 @@ func generateRegistryAuth(server, username, password string) ([]byte, error) {
 	return registryBytes, err
 }
 
+// generateECRRegistryAuth 构造 ECR 认证配置（使用 credsStore 辅助工具）
 func generateECRRegistryAuth(accountID, region string) ([]byte, error) {
 	if len(accountID) == 0 || len(region) == 0 {
 		return nil, errors.New("you must provide an --account-id and --region when using --ecr")
@@ -172,6 +183,7 @@ func generateECRRegistryAuth(accountID, region string) ([]byte, error) {
 	return registryBytes, err
 }
 
+// writeFileToFassCLITmp 将配置写入 ./credentials/config.json
 func writeFileToFassCLITmp(fileBytes []byte) error {
 	path := "./credentials"
 	if _, err := os.Stat(path); err != nil && os.IsNotExist(err) {
@@ -184,14 +196,17 @@ func writeFileToFassCLITmp(fileBytes []byte) error {
 	return os.WriteFile(filepath.Join(path, "config.json"), fileBytes, 0744)
 }
 
+// Auth 仓库认证结构（存储 Base64 编码的用户名密码）
 type Auth struct {
 	Base64AuthString string `json:"auth"`
 }
 
+// RegistryAuth Docker 配置文件根结构
 type RegistryAuth struct {
 	AuthConfigs map[string]Auth `json:"auths"`
 }
 
+// ECRRegistryAuth ECR 配置文件结构（使用凭证助手）
 type ECRRegistryAuth struct {
 	CredsStore  string            `json:"credsStore"`
 	CredHelpers map[string]string `json:"credHelpers"`

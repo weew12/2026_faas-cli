@@ -1,3 +1,6 @@
+// Copyright (c) Alex Ellis 2017. All rights reserved.
+// Licensed under the MIT license. See LICENSE file in the project root for full license information.
+
 package commands
 
 import (
@@ -8,8 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// shell 存储命令行传入的 shell 类型（bash/zsh）
 var shell string
 
+// completionCmd 生成命令行自动补全脚本的子命令
 var completionCmd = &cobra.Command{
 	Use:   "completion SHELL",
 	Short: "Generates shell auto completion",
@@ -23,17 +28,22 @@ https://docs.openfaas.com/cli/completion/`,
 }
 
 func init() {
+	// 定义 --shell 参数，必须为 bash 或 zsh
 	completionCmd.Flags().StringVar(&shell, "shell", "", "Outputs shell completion, must be bash or zsh")
+	// 标记 --shell 为必填参数
 	completionCmd.MarkFlagRequired("shell")
 
+	// 把 completion 命令注册到根命令
 	faasCmd.AddCommand(completionCmd)
 }
 
+// runCompletion 执行补全生成逻辑
 func runCompletion(cmd *cobra.Command, args []string) (err error) {
 	if shell == "" {
 		return fmt.Errorf("--shell is required and must be bash or zsh")
 	}
 
+	// 根据 shell 类型生成对应补全
 	switch shell {
 	case "bash":
 		err = generateBashCompletion()
@@ -54,7 +64,9 @@ func runCompletion(cmd *cobra.Command, args []string) (err error) {
 	}
 }
 
+// generateBashCompletion 输出 bash 自动补全脚本
 func generateBashCompletion() error {
+	// 调用 Cobra 内置方法生成 bash 补全
 	err := faasCmd.GenBashCompletion(os.Stdout)
 	if err != nil {
 		return err
@@ -63,7 +75,9 @@ func generateBashCompletion() error {
 	return nil
 }
 
+// generateZshCompletion 输出 zsh 自动补全脚本（兼容层）
 func generateZshCompletion() error {
+	// zsh 补全文件头部
 	zshHead := "#compdef faas-cli\n"
 
 	out := os.Stdout
@@ -73,6 +87,7 @@ func generateZshCompletion() error {
 		return err
 	}
 
+	// zsh 兼容 bash 补全的初始化脚本
 	zshInitialization := `
 __faas-cli_bash_source() {
 	alias shopt=':'
@@ -203,14 +218,17 @@ __faas-cli_convert_bash_to_zsh() {
 		return err
 	}
 
+	// 先生成 bash 补全到缓冲区
 	buf := new(bytes.Buffer)
 	faasCmd.GenBashCompletion(buf)
 
+	// 输出 bash 补全内容
 	_, err = out.Write(buf.Bytes())
 	if err != nil {
 		return err
 	}
 
+	// zsh 补全文件尾部
 	zshTail := `
 BASH_COMPLETION_EOF
 }

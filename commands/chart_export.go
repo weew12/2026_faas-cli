@@ -16,15 +16,17 @@ import (
 	yaml "gopkg.in/yaml.v3"
 )
 
+// 命令行参数变量
 var (
-	chartExportOutput    string
-	chartExportValues    []string
-	chartExportSet       []string
-	chartExportCRDs      bool
-	chartExportNamespace string
-	chartExportRelease   string
+	chartExportOutput    string   // 输出目录
+	chartExportValues    []string // values 文件路径
+	chartExportSet       []string // 手动设置的 value
+	chartExportCRDs      bool     // 是否包含 CRDs
+	chartExportNamespace string   // Kubernetes 命名空间
+	chartExportRelease   string   // Helm release 名称
 )
 
+// chartExportCmd 导出 Helm chart 并拆分为单个资源 YAML 的命令
 var chartExportCmd = &cobra.Command{
 	Use:   `export [CHART_NAME] [flags]`,
 	Short: "Render a Helm chart and export each resource as a separate YAML file",
@@ -55,6 +57,7 @@ CHART_NAME is optional and defaults to "openfaas". It maps to
 }
 
 func init() {
+	// 绑定命令行参数
 	chartExportCmd.Flags().StringVarP(&chartExportOutput, "output", "o", "./yaml", "Output directory for rendered YAML files")
 	chartExportCmd.Flags().StringArrayVar(&chartExportValues, "values", nil, "Path to values file(s) to use during rendering")
 	chartExportCmd.Flags().StringArrayVar(&chartExportSet, "set", nil, "Set individual values (key=value)")
@@ -62,9 +65,11 @@ func init() {
 	chartExportCmd.Flags().StringVarP(&chartExportNamespace, "namespace", "n", "", "Kubernetes namespace for rendered manifests")
 	chartExportCmd.Flags().StringVar(&chartExportRelease, "release", "openfaas", "Helm release name")
 
+	// 将 export 子命令挂载到 chart 命令下
 	chartCmd.AddCommand(chartExportCmd)
 }
 
+// preRunChartExport 执行前检查：helm 是否存在、chart 目录是否存在
 func preRunChartExport(cmd *cobra.Command, args []string) error {
 	if _, err := exec.LookPath("helm"); err != nil {
 		return fmt.Errorf("helm is required but was not found in PATH")
@@ -79,9 +84,11 @@ func preRunChartExport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runChartExport 执行 chart 导出主逻辑
 func runChartExport(cmd *cobra.Command, args []string) error {
 	chartPath := resolveChartPath(args)
 
+	// 构造 helm template 命令参数
 	helmArgs := []string{"template", chartExportRelease, chartPath}
 
 	if chartExportCRDs {
@@ -102,6 +109,7 @@ func runChartExport(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("Running: helm %s\n", strings.Join(helmArgs, " "))
 
+	// 执行 helm template
 	helmCmd := exec.Command("helm", helmArgs...)
 	var stdout, stderr bytes.Buffer
 	helmCmd.Stdout = &stdout
@@ -111,6 +119,7 @@ func runChartExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("helm template failed: %s\n%s", err, stderr.String())
 	}
 
+	// 拆分 YAML 流为单个资源
 	resources, err := splitYAMLStream(&stdout)
 	if err != nil {
 		return fmt.Errorf("failed to parse YAML output: %s", err)
@@ -120,6 +129,7 @@ func runChartExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("no resources found in helm output")
 	}
 
+	// 准备输出目录
 	outputDir, err := filepath.Abs(chartExportOutput)
 	if err != nil {
 		return err
@@ -129,16 +139,18 @@ func runChartExport(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("failed to clean output directory: %s", err)
 	}
 
-	// Detect duplicate kind+name pairs so we can disambiguate with namespace
+	// 检测重复的 kind + name，用于处理重名文件
 	type kindName struct{ kind, name string }
 	seen := make(map[kindName]int)
 	for _, res := range resources {
 		seen[kindName{res.Kind, res.Name}]++
 	}
 
+	// 写入每个资源到独立文件
 	written := 0
 	for _, res := range resources {
 		dir := strings.ToLower(res.Kind)
+		// CRD 文件夹加 00_ 前缀保证排序优先
 		if res.Kind == "CustomResourceDefinition" {
 			dir = "00_" + dir
 		}
@@ -148,11 +160,13 @@ func runChartExport(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("failed to create directory %s: %s", destDir, err)
 		}
 
+		// 处理重名：加上 namespace
 		filename := res.Name
 		if seen[kindName{res.Kind, res.Name}] > 1 && res.Namespace != "" {
 			filename = res.Name + "." + res.Namespace
 		}
 
+		// 写入文件
 		destFile := filepath.Join(destDir, filename+".yaml")
 		if err := os.WriteFile(destFile, res.Raw, 0644); err != nil {
 			return fmt.Errorf("failed to write %s: %s", destFile, err)
@@ -167,6 +181,7 @@ func runChartExport(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// chartResource 表示一个 Kubernetes 资源
 type chartResource struct {
 	Kind      string
 	Name      string
@@ -174,6 +189,7 @@ type chartResource struct {
 	Raw       []byte
 }
 
+// splitYAMLStream 把 helm 输出的 YAML 流按 --- 拆分成多个资源
 func splitYAMLStream(r io.Reader) ([]chartResource, error) {
 	decoder := yaml.NewDecoder(r)
 	var resources []chartResource
@@ -192,6 +208,7 @@ func splitYAMLStream(r io.Reader) ([]chartResource, error) {
 			continue
 		}
 
+		// 提取资源元信息
 		kind, _ := doc["kind"].(string)
 		if kind == "" {
 			continue
@@ -207,6 +224,7 @@ func splitYAMLStream(r io.Reader) ([]chartResource, error) {
 		}
 		namespace, _ := meta["namespace"].(string)
 
+		// 重新序列化为干净的 YAML
 		raw, err := marshalYAML(doc)
 		if err != nil {
 			return nil, fmt.Errorf("failed to marshal %s/%s: %s", kind, name, err)
@@ -223,6 +241,7 @@ func splitYAMLStream(r io.Reader) ([]chartResource, error) {
 	return resources, nil
 }
 
+// marshalYAML 格式化输出 YAML（缩进 2）
 func marshalYAML(doc map[string]interface{}) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -234,6 +253,7 @@ func marshalYAML(doc map[string]interface{}) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
+// resolveChartPath 解析 chart 路径：默认 chart/openfaas
 func resolveChartPath(args []string) string {
 	chartName := "openfaas"
 	if len(args) > 0 && args[0] != "" {

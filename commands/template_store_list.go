@@ -1,6 +1,8 @@
 // Copyright (c) OpenFaaS Author(s) 2018. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+// Package commands 实现 OpenFaaS CLI 命令行工具的所有命令逻辑
+// 本文件实现 template store list 命令，用于列出模板仓库中的可用函数模板
 package commands
 
 import (
@@ -9,7 +11,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-
 	"net/http"
 	"os"
 	"sort"
@@ -21,18 +22,21 @@ import (
 )
 
 const (
-	// DefaultTemplatesStore is the URL where the official store can be found
+	// DefaultTemplatesStore 官方模板仓库的默认地址
 	DefaultTemplatesStore = "https://raw.githubusercontent.com/openfaas/store/master/templates.json"
-	mainPlatform          = "x86_64"
+	// mainPlatform 默认展示的平台架构
+	mainPlatform = "x86_64"
 )
 
+// 命令行全局参数
 var (
-	templateStoreURL string
-	inputPlatform    string
-	recommended      bool
-	official         bool
+	templateStoreURL string // 模板仓库URL
+	inputPlatform    string // 过滤模板的平台架构
+	recommended      bool   // 仅展示推荐模板
+	official         bool   // 仅展示官方模板
 )
 
+// init 初始化 template store list 命令，注册命令行标志并添加到父命令
 func init() {
 	templateStoreListCmd.Flags().BoolVarP(&verbose, "verbose", "v", false, "Shows additional language and platform")
 	templateStoreListCmd.PersistentFlags().StringVarP(&templateStoreURL, "url", "u", DefaultTemplatesStore, "Use as alternative store for templates")
@@ -43,7 +47,7 @@ func init() {
 	templateStoreCmd.AddCommand(templateStoreListCmd)
 }
 
-// templateStoreListCmd lists templates from default store or custom store if set
+// templateStoreListCmd 列出默认/自定义模板仓库中的可用函数模板
 var templateStoreListCmd = &cobra.Command{
 	Use:     `list`,
 	Short:   `List templates from OpenFaaS organizations`,
@@ -73,6 +77,8 @@ official list maintained by the OpenFaaS community is used. You can override thi
 	RunE: runTemplateStoreList,
 }
 
+// runTemplateStoreList 执行模板列表命令的核心逻辑
+// 读取仓库配置、获取模板清单、过滤并格式化输出结果
 func runTemplateStoreList(cmd *cobra.Command, args []string) error {
 	envTemplateRepoStore := os.Getenv(templateStoreURLEnvironment)
 	storeURL := getTemplateStoreURL(templateStoreURL, envTemplateRepoStore, DefaultTemplatesStore)
@@ -83,6 +89,7 @@ func runTemplateStoreList(cmd *cobra.Command, args []string) error {
 	}
 	list := []TemplateInfo{}
 
+	// 根据参数过滤模板：推荐/官方/全部
 	if recommended {
 		for i := 0; i < len(templatesInfo); i++ {
 			if templatesInfo[i].Recommended {
@@ -106,6 +113,8 @@ func runTemplateStoreList(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// getTemplateInfo 通过HTTP请求获取模板仓库的模板清单
+// 解析JSON并返回结构化的模板信息列表
 func getTemplateInfo(repository string) ([]TemplateInfo, error) {
 	req, reqErr := http.NewRequest(http.MethodGet, repository, nil)
 	if reqErr != nil {
@@ -126,7 +135,7 @@ func getTemplateInfo(repository string) ([]TemplateInfo, error) {
 		return nil, fmt.Errorf("error empty response body from: %s", templateStoreURL)
 	}
 	defer func() {
-		_, _ = io.Copy(io.Discard, res.Body) // drain to EOF
+		_, _ = io.Copy(io.Discard, res.Body) // 排空响应体
 		_ = res.Body.Close()
 	}()
 
@@ -149,6 +158,8 @@ func getTemplateInfo(repository string) ([]TemplateInfo, error) {
 	return templatesInfo, nil
 }
 
+// sortTemplates 对模板列表进行排序
+// 排序规则：推荐模板 > 官方模板 > 模板名称(字母序)
 func sortTemplates(templatesInfo []TemplateInfo) {
 	sort.Slice(templatesInfo, func(i, j int) bool {
 		if templatesInfo[i].Recommended == templatesInfo[j].Recommended {
@@ -165,6 +176,8 @@ func sortTemplates(templatesInfo []TemplateInfo) {
 	})
 }
 
+// formatTemplatesOutput 格式化模板列表为终端友好输出
+// 支持按平台过滤、普通/详细两种展示模式
 func formatTemplatesOutput(templates []TemplateInfo, verbose bool, platform string) string {
 
 	if platform != mainPlatform {
@@ -193,6 +206,7 @@ func formatTemplatesOutput(templates []TemplateInfo, verbose bool, platform stri
 	return buff.String()
 }
 
+// formatBasicOutput 输出基础版模板列表（简洁模式）
 func formatBasicOutput(lineWriter *tabwriter.Writer, templates []TemplateInfo) {
 
 	fmt.Fprintf(lineWriter, "NAME\tRECOMMENDED\tDESCRIPTION\tSOURCE\n")
@@ -211,6 +225,7 @@ func formatBasicOutput(lineWriter *tabwriter.Writer, templates []TemplateInfo) {
 	}
 }
 
+// formatVerboseOutput 输出详细版模板列表（verbose模式）
 func formatVerboseOutput(lineWriter *tabwriter.Writer, templates []TemplateInfo) {
 
 	fmt.Fprintf(lineWriter, "NAME\tRECOMMENDED\tSOURCE\tDESCRIPTION\tLANGUAGE\tPLATFORM\n")
@@ -230,7 +245,7 @@ func formatVerboseOutput(lineWriter *tabwriter.Writer, templates []TemplateInfo)
 	}
 }
 
-// TemplateInfo is the definition of a template which is part of the store
+// TemplateInfo 模板仓库中单个函数模板的结构体定义
 type TemplateInfo struct {
 	TemplateName string `json:"template"`
 	Platform     string `json:"platform"`
@@ -242,6 +257,7 @@ type TemplateInfo struct {
 	Recommended  bool   `json:"recommended"`
 }
 
+// filterTemplate 根据平台架构过滤模板列表
 func filterTemplate(templates []TemplateInfo, platform string) []TemplateInfo {
 	var filteredTemplates []TemplateInfo
 

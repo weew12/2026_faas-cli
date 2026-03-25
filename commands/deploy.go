@@ -22,12 +22,12 @@ import (
 )
 
 var (
-	// readTemplate controls whether we should read the function's template when deploying.
+	// readTemplate 部署时是否读取函数模板
 	readTemplate    bool
 	timeoutOverride time.Duration
 )
 
-// DeployFlags holds flags that are to be added to commands.
+// DeployFlags 部署命令用到的所有标志
 type DeployFlags struct {
 	envvarOpts             []string
 	replace                bool
@@ -42,7 +42,7 @@ type DeployFlags struct {
 var deployFlags DeployFlags
 
 func init() {
-	// Setup flags that are used by multiple commands (variables defined in faas.go)
+	// 共用标志
 	deployCmd.Flags().StringVar(&fprocess, "fprocess", "", "fprocess value to be run as a serverless function by the watchdog")
 	deployCmd.Flags().StringVarP(&gateway, "gateway", "g", defaultGateway, "Gateway URL starting with http(s)://")
 	deployCmd.Flags().StringVar(&handler, "handler", "", "Directory with handler for function, e.g. handler.js")
@@ -52,29 +52,21 @@ func init() {
 	deployCmd.Flags().StringVar(&network, "network", defaultNetwork, "Name of the network")
 	deployCmd.Flags().StringVarP(&functionNamespace, "namespace", "n", "", "Namespace of the function")
 
-	// Setup flags that are used only by this command (variables defined above)
+	// 本命令专用标志
 	deployCmd.Flags().StringArrayVarP(&deployFlags.envvarOpts, "env", "e", []string{}, "Set one or more environment variables (ENVVAR=VALUE)")
-
 	deployCmd.Flags().StringArrayVarP(&deployFlags.labelOpts, "label", "l", []string{}, "Set one or more label (LABEL=VALUE)")
-
 	deployCmd.Flags().StringArrayVarP(&deployFlags.annotationOpts, "annotation", "", []string{}, "Set one or more annotation (ANNOTATION=VALUE)")
-
 	deployCmd.Flags().BoolVar(&deployFlags.replace, "replace", false, "Remove and re-create existing function(s)")
 	deployCmd.Flags().BoolVar(&deployFlags.update, "update", true, "Perform rolling update on existing function(s)")
-
 	deployCmd.Flags().StringArrayVar(&deployFlags.constraints, "constraint", []string{}, "Apply a constraint to the function")
 	deployCmd.Flags().StringArrayVar(&deployFlags.secrets, "secret", []string{}, "Give the function access to a secure secret")
 	deployCmd.Flags().BoolVar(&deployFlags.readOnlyRootFilesystem, "readonly", false, "Force the root container filesystem to be read only")
-
 	deployCmd.Flags().Var(&tagFormat, "tag", "Override latest tag on function Docker image, accepts 'latest', 'sha', 'branch', or 'describe'")
-
 	deployCmd.Flags().BoolVar(&tlsInsecure, "tls-no-verify", false, "Disable TLS validation")
 	deployCmd.Flags().BoolVar(&envsubst, "envsubst", true, "Substitute environment variables in stack.yaml file")
 	deployCmd.Flags().StringVarP(&token, "token", "k", "", "Pass a JWT token to use instead of basic auth")
-	// Set bash-completion.
 	_ = deployCmd.Flags().SetAnnotation("handler", cobra.BashCompSubdirsInDir, []string{})
 	deployCmd.Flags().BoolVar(&readTemplate, "read-template", true, "Read the function's template")
-
 	deployCmd.Flags().DurationVar(&timeoutOverride, "timeout", commandTimeout, "Timeout for any HTTP calls made to the OpenFaaS API.")
 
 	deployCmd.Flags().StringVar(&cpuRequest, "cpu-request", "", "Supply the CPU request for the function in Mi (when not using a YAML file)")
@@ -85,7 +77,7 @@ func init() {
 	faasCmd.AddCommand(deployCmd)
 }
 
-// deployCmd handles deploying OpenFaaS function containers
+// deployCmd 部署函数的主命令
 var deployCmd = &cobra.Command{
 	Use: `deploy -f YAML_FILE [--replace=false]
   faas-cli deploy --image IMAGE_NAME
@@ -131,10 +123,9 @@ via flags. Note: --replace and --update are mutually exclusive.`,
 	RunE:    runDeploy,
 }
 
-// preRunDeploy validates args & flags
+// preRunDeploy 校验参数
 func preRunDeploy(cmd *cobra.Command, args []string) error {
 	language, _ = validateLanguageFlag(language)
-
 	return nil
 }
 
@@ -142,6 +133,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	return runDeployCommand(args, image, fprocess, functionName, deployFlags, tagFormat)
 }
 
+// runDeployCommand 部署主逻辑
 func runDeployCommand(args []string, image string, fprocess string, functionName string, deployFlags DeployFlags, tagMode schema.BuildFormat) error {
 	if deployFlags.update && deployFlags.replace {
 		fmt.Println(`Cannot specify --update and --replace at the same time. One of --update or --replace must be false.
@@ -179,10 +171,10 @@ func runDeployCommand(args []string, image string, fprocess string, functionName
 			return err
 		}
 
+		// 批量部署 YAML 中的函数
 		for k, function := range services.Functions {
 
 			functionSecrets := deployFlags.secrets
-
 			function.Name = k
 			fmt.Printf("Deploying: %s.\n", function.Name)
 
@@ -197,10 +189,7 @@ func runDeployCommand(args []string, image string, fprocess string, functionName
 				functionSecrets = util.MergeSlice(function.Secrets, functionSecrets)
 			}
 
-			// Check if there is a functionNamespace flag passed, if so, override the namespace value
-			// defined in the stack.yaml
 			function.Namespace = getNamespace(functionNamespace, function.Namespace)
-
 			fileEnvironment, err := readFiles(function.EnvironmentFile)
 			if err != nil {
 				return err
@@ -217,17 +206,15 @@ func runDeployCommand(args []string, image string, fprocess string, functionName
 			}
 
 			allLabels := util.MergeMap(labelMap, labelArgumentMap)
-
 			allEnvironment, envErr := compileEnvironment(deployFlags.envvarOpts, function.Environment, fileEnvironment)
 			if envErr != nil {
 				return envErr
 			}
 
+			// 从模板获取 FProcess
 			if readTemplate {
-				// Get FProcess to use from the ./template/template.yml, if a template is being used
 				if languageExistsNotDockerfile(function.Language) {
 					var fprocessErr error
-
 					function.FProcess, fprocessErr = deriveFprocess(function)
 					if fprocessErr != nil {
 						return fmt.Errorf(`template directory may be missing or invalid, please run "faas-cli template pull"
@@ -252,7 +239,6 @@ Error: %s`, fprocessErr.Error())
 			}
 
 			allAnnotations := util.MergeMap(annotations, annotationArgs)
-
 			branch, sha, err := builder.GetImageTagValues(tagMode, function.Handler)
 			if err != nil {
 				return err
@@ -264,6 +250,7 @@ Error: %s`, fprocessErr.Error())
 				function.ReadOnlyRootFilesystem = deployFlags.readOnlyRootFilesystem
 			}
 
+			// 构造部署请求体
 			deploySpec := &proxy.DeployFunctionSpec{
 				FProcess:                function.FProcess,
 				FunctionName:            function.Name,
@@ -283,15 +270,19 @@ Error: %s`, fprocessErr.Error())
 				Namespace:               function.Namespace,
 			}
 
+			// TLS 不安全提示
 			if msg := checkTLSInsecure(services.Provider.GatewayURL, deploySpec.TLSInsecure); len(msg) > 0 {
 				fmt.Println(msg)
 			}
+
+			// 发送部署请求
 			statusCode := proxyClient.DeployFunction(ctx, deploySpec)
 			if badStatusCode(statusCode) {
 				failedStatusCodes[k] = statusCode
 			}
 		}
 	} else {
+		// 未提供 YAML，使用命令行参数直接部署
 		if len(image) == 0 || len(functionName) == 0 {
 			return fmt.Errorf("to deploy a function give --yaml/-f or a --image and --name flag")
 		}
@@ -306,8 +297,6 @@ Error: %s`, fprocessErr.Error())
 			return err
 		}
 
-		// default to a readable filesystem until we get more input about the expected behavior
-		// and if we want to add another flag for this case
 		defaultReadOnlyRFS := false
 		statusCode, err := deployImage(ctx,
 			proxyClient,
@@ -340,7 +329,7 @@ Error: %s`, fprocessErr.Error())
 	return nil
 }
 
-// deployImage deploys a function with the given image
+// deployImage 使用镜像直接部署单个函数
 func deployImage(
 	ctx context.Context,
 	client *proxy.Client,
@@ -367,13 +356,11 @@ func deployImage(
 	}
 
 	labelMap, labelErr := util.ParseMap(deployFlags.labelOpts, "label")
-
 	if labelErr != nil {
 		return statusCode, fmt.Errorf("error parsing labels: %v", labelErr)
 	}
 
 	annotationMap, annotationErr := util.ParseMap(deployFlags.annotationOpts, "annotation")
-
 	if annotationErr != nil {
 		return statusCode, fmt.Errorf("error parsing annotations: %v", annotationErr)
 	}
@@ -420,6 +407,7 @@ func deployImage(
 	return statusCode, nil
 }
 
+// readFiles 读取环境变量文件
 func readFiles(files []string) (map[string]string, error) {
 	envs := make(map[string]string)
 
@@ -440,6 +428,7 @@ func readFiles(files []string) (map[string]string, error) {
 	return envs, nil
 }
 
+// compileEnvironment 合并命令行、yaml、文件中的环境变量
 func compileEnvironment(envvarOpts []string, yamlEnvironment map[string]string, fileEnvironment map[string]string) (map[string]string, error) {
 	envvarArguments, err := util.ParseMap(envvarOpts, "env")
 	if err != nil {
@@ -450,6 +439,7 @@ func compileEnvironment(envvarOpts []string, yamlEnvironment map[string]string, 
 	return util.MergeMap(functionAndStack, envvarArguments), nil
 }
 
+// deriveFprocess 从函数模板中读取默认 fprocess
 func deriveFprocess(function stack.Function) (string, error) {
 	var fprocess string
 
@@ -467,7 +457,6 @@ func deriveFprocess(function stack.Function) (string, error) {
 
 	if err != nil {
 		return "", err
-
 	}
 
 	if parsedLangTemplate != nil {
@@ -478,10 +467,12 @@ func deriveFprocess(function stack.Function) (string, error) {
 	return fprocess, nil
 }
 
+// languageExistsNotDockerfile 非 dockerfile 语言模板
 func languageExistsNotDockerfile(language string) bool {
 	return len(language) > 0 && strings.ToLower(language) != "dockerfile"
 }
 
+// deployFailed 检查并返回部署失败的函数
 func deployFailed(status map[string]int) error {
 	if len(status) == 0 {
 		return nil
@@ -495,6 +486,7 @@ func deployFailed(status map[string]int) error {
 	return fmt.Errorf("%s", strings.Join(allErrors, "\n"))
 }
 
+// badStatusCode 检查响应码是否非成功
 func badStatusCode(statusCode int) bool {
 	return statusCode != http.StatusAccepted && statusCode != http.StatusOK
 }

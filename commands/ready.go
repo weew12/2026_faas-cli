@@ -1,6 +1,8 @@
 // Copyright (c) Alex Ellis 2017. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+// Package commands 实现 OpenFaaS CLI 命令行工具的所有命令逻辑
+// 本文件实现 ready 命令，用于阻塞等待网关或函数变为就绪状态
 package commands
 
 import (
@@ -16,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// init 初始化 ready 命令，注册命令行参数并添加到主命令 faasCmd
 func init() {
 	// Setup flags that are used by multiple commands (variables defined in faas.go)
 	readyCmd.Flags().StringVarP(&gateway, "gateway", "g", defaultGateway, "Gateway URL starting with http(s)://")
@@ -28,6 +31,8 @@ func init() {
 	faasCmd.AddCommand(readyCmd)
 }
 
+// readyCmd 阻塞程序执行，直到网关健康 或 函数可用副本数 > 0
+// 可用于脚本中等待部署完成后再执行后续操作
 var readyCmd = &cobra.Command{
 	Use:   `ready [--gateway GATEWAY_URL] [--tls-no-verify] [FUNCTION_NAME]`,
 	Short: "Block until the gateway or a function is ready for use",
@@ -45,6 +50,9 @@ var readyCmd = &cobra.Command{
 	RunE: runReadyCmd,
 }
 
+// runReadyCmd 执行等待就绪的核心逻辑
+// 分支1：无函数名 → 等待网关 /healthz 返回 200
+// 分支2：有函数名 → 等待函数 AvailableReplicas > 0
 func runReadyCmd(cmd *cobra.Command, args []string) error {
 	interval, err := cmd.Flags().GetDuration("interval")
 	if err != nil {
@@ -77,6 +85,7 @@ func runReadyCmd(cmd *cobra.Command, args []string) error {
 	gatewayAddress = getGatewayURL(gateway, defaultGateway, yamlGateway, os.Getenv(openFaaSURLEnvironment))
 	transport := GetDefaultCLITransport(tlsInsecure, &commandTimeout)
 
+	// 分支1：不指定函数名 → 等待网关健康检查就绪
 	if len(args) == 0 {
 		ready := false
 
@@ -115,6 +124,7 @@ func runReadyCmd(cmd *cobra.Command, args []string) error {
 		}
 
 	} else {
+		// 分支2：指定函数名 → 等待函数可用副本数 > 0
 		functionName := args[0]
 		ready := false
 		cliAuth, err := proxy.NewCLIAuth(token, gatewayAddress)

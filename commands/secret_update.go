@@ -1,6 +1,8 @@
 // Copyright (c) OpenFaaS Author(s) 2019. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+// Package commands 实现 OpenFaaS CLI 命令行工具的所有命令逻辑
+// 本文件实现 secret update 命令，用于更新函数密钥
 package commands
 
 import (
@@ -15,6 +17,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// secretUpdateCmd 更新已存在的密钥
+// 支持从字面量、文件、标准输入读取密钥值
 var secretUpdateCmd = &cobra.Command{
 	Use:     "update [--tls-no-verify]",
 	Aliases: []string{"u"},
@@ -30,6 +34,7 @@ cat /path/to/secret/file | faas-cli secret update NAME`,
 	PreRunE: preRunSecretUpdate,
 }
 
+// init 初始化 secret update 命令，注册命令行参数并添加到 secret 根命令
 func init() {
 	secretUpdateCmd.Flags().StringVarP(&gateway, "gateway", "g", defaultGateway, "Gateway URL starting with http(s)://")
 	secretUpdateCmd.Flags().BoolVar(&tlsInsecure, "tls-no-verify", false, "Disable TLS validation")
@@ -41,6 +46,10 @@ func init() {
 	secretCmd.AddCommand(secretUpdateCmd)
 }
 
+// preRunSecretUpdate 命令执行前的参数校验
+// 1. 必须传入密钥名称
+// 2. 名称只能有一个
+// 3. 不能同时使用多个密钥输入方式
 func preRunSecretUpdate(cmd *cobra.Command, args []string) error {
 	if len(args) == 0 {
 		return fmt.Errorf("secret name required")
@@ -57,6 +66,11 @@ func preRunSecretUpdate(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runSecretUpdate 执行密钥更新逻辑
+// 1. 获取网关地址
+// 2. 读取密钥值（来自 literal/file/stdin）
+// 3. 去除首尾空白（trim 开启时）
+// 4. 调用 OpenFaaS 客户端更新密钥
 func runSecretUpdate(cmd *cobra.Command, args []string) error {
 	gatewayAddress := getGatewayURL(gateway, defaultGateway, "", os.Getenv(openFaaSURLEnvironment))
 
@@ -69,6 +83,7 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 		Namespace: functionNamespace,
 	}
 
+	// 从三种方式读取密钥值
 	switch {
 	case len(literalSecret) > 0:
 		secret.Value = literalSecret
@@ -93,14 +108,17 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 		secret.Value = string(secretStdin)
 	}
 
+	// 去除首尾空白字符
 	if trimSecret {
 		secret.Value = strings.TrimSpace(secret.Value)
 	}
 
+	// 密钥值不能为空
 	if len(secret.Value) == 0 {
 		return fmt.Errorf("must provide a non empty secret via --from-literal, --from-file or STDIN")
 	}
 
+	// 创建 OpenFaaS 客户端
 	cliAuth, err := proxy.NewCLIAuth(token, gatewayAddress)
 	if err != nil {
 		return err
@@ -112,6 +130,7 @@ func runSecretUpdate(cmd *cobra.Command, args []string) error {
 	}
 
 	fmt.Println("Updating secret: " + secret.Name)
+	// 调用 API 更新密钥
 	_, output := client.UpdateSecret(context.Background(), secret)
 	fmt.Printf("%s", output)
 

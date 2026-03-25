@@ -22,24 +22,29 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+// localSecretsDir 本地测试时使用的密钥目录
 const localSecretsDir = ".secrets"
 
 func init() {
+	// 注册 local-run 命令到主命令
 	faasCmd.AddCommand(newLocalRunCmd())
 }
 
+// runOptions 本地运行命令的配置选项
 type runOptions struct {
-	print    bool
-	port     int
-	network  string
-	extraEnv map[string]string
-	output   io.Writer
-	err      io.Writer
-	build    bool
+	print    bool              // 仅打印 docker 命令，不执行
+	port     int               // 映射的主机端口
+	network  string            // 使用的 Docker 网络
+	extraEnv map[string]string // 额外的环境变量
+	output   io.Writer         // 标准输出
+	err      io.Writer         // 错误输出
+	build    bool              // 运行前是否自动构建
 }
 
+// opts 全局命令选项
 var opts runOptions
 
+// newLocalRunCmd 创建 local-run 命令
 func newLocalRunCmd() *cobra.Command {
 
 	cmd := &cobra.Command{
@@ -67,6 +72,7 @@ services deployed within your OpenFaaS cluster.`,
   faas-cli local-run stronghash -f ./stronghash.yaml
 `,
 		PreRunE: func(cmd *cobra.Command, args []string) error {
+			// 只允许传入一个函数名
 			if len(args) > 1 {
 				return fmt.Errorf("only one function name is allowed")
 			}
@@ -80,29 +86,29 @@ services deployed within your OpenFaaS cluster.`,
 		RunE: runLocalRunE,
 	}
 
+	// 注册命令行参数
 	cmd.Flags().BoolVar(&opts.print, "print", false, "Print the docker command instead of running it")
 	cmd.Flags().BoolVar(&opts.build, "build", true, "Build function prior to local-run")
 	cmd.Flags().IntVarP(&opts.port, "port", "p", 8080, "port to bind the function to, set to \"0\" to use a random port")
-	cmd.Flags().Var(&tagFormat, "tag", "Override latest tag on function Docker image, accepts 'digest', 'sha', 'branch', or 'describe', or 'latest'")
+	cmd.Flags().Var(&tagFormat, "tag", "Override latest tag on function Docker image, accepts 'digest', 'sha', 'branch', 'describe', or 'latest'")
 
 	cmd.Flags().StringVar(&opts.network, "network", "", "connect function to an existing network, use 'host' to access other process already running on localhost. When using this, '--port' is ignored, if you have port collisions, you may change the port using '-e port=NEW_PORT'")
 	cmd.Flags().StringToStringVarP(&opts.extraEnv, "env", "e", map[string]string{}, "additional environment variables (ENVVAR=VALUE), use this to experiment with different values for your function")
 	cmd.Flags().BoolVar(&watch, "watch", false, "Watch for changes in files and re-deploy")
 
+	// 继承 build 命令的所有参数
 	build, _, _ := faasCmd.Find([]string{"build"})
 	cmd.Flags().AddFlagSet(build.Flags())
 
 	return cmd
 }
 
+// runLocalRunE 命令入口：处理监听模式/直接运行
 func runLocalRunE(cmd *cobra.Command, args []string) error {
 
 	watch, _ := cmd.Flags().GetBool("watch")
 
-	// AE: This doesn't work currently due to the blocking nature of
-	// docker run.
-	// a channel and / or cancellation context will need to be implemented
-	// within the watchLoop utility function.
+	// 监听模式（暂未完全实现）
 	if watch {
 		return watchLoop(cmd, args, localRunExec)
 	}
@@ -113,6 +119,7 @@ func runLocalRunE(cmd *cobra.Command, args []string) error {
 	return localRunExec(cmd, args, ctx)
 }
 
+// localRunExec 执行本地运行逻辑：构建 → 运行
 func localRunExec(cmd *cobra.Command, args []string, ctx context.Context) error {
 	if opts.build {
 		if err := localBuild(cmd, args); err != nil {
@@ -132,9 +139,7 @@ func localRunExec(cmd *cobra.Command, args []string, ctx context.Context) error 
 
 }
 
-// AE: I found that the `localrun` command will do a build of all functions in
-// the stack.yaml if no argument is given and there is > 1 function in
-// the file, then it will exit with an error when it comes to the run step
+// localBuild 运行前自动构建函数
 func localBuild(cmd *cobra.Command, args []string) error {
 	if err := preRunBuild(cmd, args); err != nil {
 		return err
@@ -154,9 +159,11 @@ func localBuild(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// runFunction 核心：启动 Docker 容器运行函数
 func runFunction(ctx context.Context, name string, opts runOptions) error {
 	var services *stack.Services
 
+	// 未指定函数名 → 读取 yaml 并检查函数数量
 	if len(name) == 0 {
 		s, err := stack.ParseYAMLFile(yamlFile, "", "", true)
 		if err != nil {
@@ -186,6 +193,7 @@ func runFunction(ctx context.Context, name string, opts runOptions) error {
 			break
 		}
 	} else {
+		// 指定了函数名 → 只解析该函数
 		s, err := stack.ParseYAMLFile(yamlFile, "", name, true)
 		if err != nil {
 			return err
@@ -197,7 +205,7 @@ func runFunction(ctx context.Context, name string, opts runOptions) error {
 		}
 	}
 
-	// Always try to remove before running, to clear up any previous state
+	// 先清理旧容器
 	removeContainer(name)
 
 	function := services.Functions[name]
@@ -207,13 +215,14 @@ func runFunction(ctx context.Context, name string, opts runOptions) error {
 		functionNamespace = "openfaas-fn"
 	}
 
-	// Add openfaas env variables that are normally injected by the provider.
+	// 设置 OpenFaaS 标准环境变量
 	opts.extraEnv["OPENFAAS_NAME"] = name
 	opts.extraEnv["OPENFAAS_NAMESPACE"] = functionNamespace
 
-	// Enable local jwt auth by default
+	// 默认开启本地 JWT 认证
 	opts.extraEnv["jwt_auth_local"] = "true"
 
+	// 端口为 0 时自动分配随机端口
 	if opts.port == 0 {
 		randomPort, err := getPort()
 		if err != nil {
@@ -222,16 +231,19 @@ func runFunction(ctx context.Context, name string, opts runOptions) error {
 		opts.port = randomPort
 	}
 
+	// 构建完整的 docker run 命令
 	cmd, err := buildDockerRun(ctx, name, function, opts)
 	if err != nil {
 		return err
 	}
 
+	// 仅打印命令模式
 	if opts.print {
 		fmt.Fprintf(opts.output, "%s\n", cmd.String())
 		return nil
 	}
 
+	// 监听退出信号
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 
@@ -245,6 +257,7 @@ func runFunction(ctx context.Context, name string, opts runOptions) error {
 
 	errGrp, _ := errgroup.WithContext(grpContext)
 
+	// 协程1：启动容器
 	errGrp.Go(func() error {
 		if err = cmd.Start(); err != nil {
 			return err
@@ -262,11 +275,12 @@ func runFunction(ctx context.Context, name string, opts runOptions) error {
 		return nil
 	})
 
-	// Always try to remove the container
+	// 退出时清理容器
 	defer func() {
 		removeContainer(name)
 	}()
 
+	// 协程2：监听信号退出
 	errGrp.Go(func() error {
 
 		select {
@@ -283,6 +297,7 @@ func runFunction(ctx context.Context, name string, opts runOptions) error {
 	return errGrp.Wait()
 }
 
+// getPort 获取一个随机可用端口
 func getPort() (int, error) {
 
 	l, err := net.Listen("tcp", ":0")
@@ -290,7 +305,7 @@ func getPort() (int, error) {
 		return 0, err
 	}
 
-	l.Close()
+	defer l.Close()
 
 	_, port, err := net.SplitHostPort(l.Addr().String())
 	if err != nil {
@@ -304,30 +319,33 @@ func getPort() (int, error) {
 	return 0, fmt.Errorf("unable to get a port")
 }
 
+// removeContainer 强制删除同名容器
 func removeContainer(name string) {
-
 	runDockerRm := exec.Command("docker", "rm", "-f", name)
 	runDockerRm.Run()
-
 }
 
-// buildDockerRun constructs a exec.Cmd from the given stack Function
+// buildDockerRun 构造完整的 docker run 命令
 func buildDockerRun(ctx context.Context, name string, fnc stack.Function, opts runOptions) (*exec.Cmd, error) {
 	args := []string{"run", "--name", name, "--rm", "-i", fmt.Sprintf("-p=%d:8080", opts.port)}
 
+	// 指定网络
 	if opts.network != "" {
 		args = append(args, fmt.Sprintf("--network=%s", opts.network))
 	}
 
+	// 获取 fprocess 启动命令
 	fprocess, err := deriveFprocess(fnc)
 	if err != nil {
 		return nil, err
 	}
 
+	// 注入环境变量
 	for name, value := range fnc.Environment {
 		args = append(args, fmt.Sprintf("-e=%s=%s", name, value))
 	}
 
+	// 读取环境文件
 	moreEnv, err := readFiles(fnc.EnvironmentFile)
 	if err != nil {
 		return nil, err
@@ -337,17 +355,19 @@ func buildDockerRun(ctx context.Context, name string, fnc stack.Function, opts r
 		args = append(args, fmt.Sprintf("-e=%s=%s", name, value))
 	}
 
+	// 额外环境变量
 	for name, value := range opts.extraEnv {
 		args = append(args, fmt.Sprintf("-e=%s=%s", name, value))
 	}
 
+	// 只读根文件系统
 	if fnc.ReadOnlyRootFilesystem {
 		args = append(args, "--read-only")
 	}
 
+	// 资源限制
 	if fnc.Limits != nil {
 		if fnc.Limits.Memory != "" {
-			// use a soft limit for debugging
 			args = append(args, fmt.Sprintf("--memory-reservation=%s", fnc.Limits.Memory))
 		}
 
@@ -356,6 +376,7 @@ func buildDockerRun(ctx context.Context, name string, fnc stack.Function, opts r
 		}
 	}
 
+	// 处理本地密钥（.secrets 目录）
 	if len(fnc.Secrets) > 0 {
 		secretsPath, err := filepath.Abs(localSecretsDir)
 		if err != nil {
@@ -376,12 +397,12 @@ func buildDockerRun(ctx context.Context, name string, fnc stack.Function, opts r
 		args = append(args, fmt.Sprintf("--volume=%s:/var/openfaas/secrets", secretsPath))
 	}
 
-	// AE: sometimes the fprocess is defined within the Dockerfile, so we should not override it
-	// with an empty string if we weren't able to determine one.
+	// 设置 fprocess
 	if fprocess != "" {
 		args = append(args, fmt.Sprintf("-e=fprocess=%s", fprocess))
 	}
 
+	// 构建镜像名称
 	branch, version, err := builder.GetImageTagValues(tagFormat, fnc.Handler)
 	if err != nil {
 		return nil, err
@@ -397,6 +418,7 @@ func buildDockerRun(ctx context.Context, name string, fnc stack.Function, opts r
 	return cmd, nil
 }
 
+// dirContainsFiles 检查密钥文件是否存在
 func dirContainsFiles(dir string, names ...string) error {
 	var err = &missingFileError{
 		dir:     dir,
@@ -418,6 +440,7 @@ func dirContainsFiles(dir string, names ...string) error {
 	return nil
 }
 
+// missingFileError 密钥文件缺失错误
 type missingFileError struct {
 	missing []string
 	dir     string

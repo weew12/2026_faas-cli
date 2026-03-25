@@ -21,22 +21,24 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// 全局命令行参数
 var (
-	contentType             string
-	query                   []string
-	headers                 []string
-	invokeAsync             bool
-	httpMethod              string
-	sigHeader               string
-	key                     string
-	functionInvokeNamespace string
-	authenticate            bool
+	contentType             string   // 请求 Content-Type
+	query                   []string // URL 查询参数
+	headers                 []string // HTTP 请求头
+	invokeAsync             bool     // 是否异步调用
+	httpMethod              string   // HTTP 方法 (GET/POST/PUT等)
+	sigHeader               string   // 签名请求头名称
+	key                     string   // 签名密钥
+	functionInvokeNamespace string   // 函数命名空间
+	authenticate            bool     // 是否启用认证
 )
 
+// functionInvokeRealm 函数调用的认证领域标识
 const functionInvokeRealm = "IAM function invoke"
 
 func init() {
-	// Setup flags that are used by multiple commands (variables defined in faas.go)
+	// 配置命令行标志
 	invokeCmd.Flags().StringVar(&functionName, "name", "", "Name of the deployed function")
 	invokeCmd.Flags().StringVarP(&functionInvokeNamespace, "namespace", "n", "", "Namespace of the deployed function")
 
@@ -54,9 +56,11 @@ func init() {
 
 	invokeCmd.Flags().BoolVar(&envsubst, "envsubst", true, "Substitute environment variables in stack.yaml file")
 
+	// 注册到主命令
 	faasCmd.AddCommand(invokeCmd)
 }
 
+// invokeCmd 调用已部署的 OpenFaaS 函数
 var invokeCmd = &cobra.Command{
 	Use:   `invoke FUNCTION_NAME [--gateway GATEWAY_URL] [--content-type CONTENT_TYPE] [--query KEY=VALUE] [--header "KEY: VALUE"] [--method HTTP_METHOD]`,
 	Short: "Invoke an OpenFaaS function",
@@ -71,6 +75,7 @@ var invokeCmd = &cobra.Command{
   faas-cli invoke env --sign X-GitHub-Event --key yoursecret`,
 	RunE: runInvoke,
 	PreRunE: func(cmd *cobra.Command, args []string) error {
+		// 执行前解析 yaml 文件
 		if len(yamlFile) > 0 {
 			parsedServices, err := stack.ParseYAMLFile(yamlFile, regex, filter, envsubst)
 			if err != nil {
@@ -83,12 +88,14 @@ var invokeCmd = &cobra.Command{
 	},
 }
 
+// runInvoke 执行函数调用的核心逻辑
 func runInvoke(cmd *cobra.Command, args []string) error {
 	if len(args) < 1 {
 		return fmt.Errorf("please provide a name for the function")
 	}
 	functionName = args[0]
 
+	// 从 yaml 中获取命名空间
 	var stackNamespace string
 	if services != nil {
 		if function, ok := services.Functions[functionName]; ok {
@@ -99,31 +106,38 @@ func runInvoke(cmd *cobra.Command, args []string) error {
 	}
 	functionNamespace = getNamespace(functionInvokeNamespace, stackNamespace)
 
+	// 校验签名参数必须同时存在
 	if missingSignFlag(sigHeader, key) {
 		return fmt.Errorf("signing requires both --sign <header-value> and --key <key-value>")
 	}
 
+	// 校验 HTTP 方法是否合法
 	err := validateHTTPMethod(httpMethod)
 	if err != nil {
 		return nil
 	}
 
+	// 解析请求头
 	httpHeader, err := parseHeaders(headers)
 	if err != nil {
 		return err
 	}
 
+	// 解析查询参数
 	httpQuery, err := parseQueryValues(query)
 	if err != nil {
 		return err
 	}
 
+	// 设置 Content-Type
 	if httpHeader.Get("Content-Type") == "" || cmd.Flag("content-type").Changed {
 		httpHeader.Set("Content-Type", contentType)
 	}
 
+	// 设置 User-Agent
 	httpHeader.Set("User-Agent", fmt.Sprintf("faas-cli/%s (openfaas; %s; %s)", version.BuildVersion(), runtime.GOOS, runtime.GOARCH))
 
+	// 读取标准输入作为函数请求体
 	stat, _ := os.Stdin.Stat()
 	if (stat.Mode() & os.ModeCharDevice) != 0 {
 		fmt.Fprintf(os.Stderr, "Reading from STDIN - hit (Control + D) to stop.\n")
@@ -134,19 +148,23 @@ func runInvoke(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("unable to read standard input: %s", err.Error())
 	}
 
+	// 如果需要，生成 HMAC 签名
 	if len(sigHeader) > 0 {
 		sig := generateSignature(functionInput, key)
 		httpHeader.Add(sigHeader, sig)
 	}
 
+	// 创建 SDK 客户端
 	client, err := GetDefaultSDKClient()
 	if err != nil {
 		return err
 	}
 
+	// 构造请求 URL
 	u, _ := url.Parse("/")
 	u.RawQuery = httpQuery.Encode()
 
+	// 发送第一次调用请求
 	body := bytes.NewReader(functionInput)
 	req, err := http.NewRequest(httpMethod, u.String(), body)
 	if err != nil {
@@ -160,17 +178,17 @@ func runInvoke(cmd *cobra.Command, args []string) error {
 	}
 	if res.Body != nil {
 		defer func() {
-			_, _ = io.Copy(io.Discard, res.Body) // drain to EOF
+			_, _ = io.Copy(io.Discard, res.Body) // 清空响应体
 			_ = res.Body.Close()
 		}()
 	}
 
+	// 如果第一次返回 401，则自动重试并启用认证
 	if !authenticate && res.StatusCode == http.StatusUnauthorized {
 		authenticateHeader := res.Header.Get("WWW-Authenticate")
 		realm := getRealm(authenticateHeader)
 
-		// Retry the request and authenticate with an OpenFaaS function access token if the realm directive in the
-		// WWW-Authenticate header is the function invoke realm.
+		// 如果是函数调用认证领域，则自动重试
 		if realm == functionInvokeRealm {
 			authenticate := true
 			body := bytes.NewReader(functionInput)
@@ -186,13 +204,14 @@ func runInvoke(cmd *cobra.Command, args []string) error {
 			}
 			if res.Body != nil {
 				defer func() {
-					_, _ = io.Copy(io.Discard, res.Body) // drain to EOF
+					_, _ = io.Copy(io.Discard, res.Body)
 					_ = res.Body.Close()
 				}()
 			}
 		}
 	}
 
+	// 检查响应状态码
 	if code := res.StatusCode; code < 200 || code > 299 {
 		resBody, err := io.ReadAll(res.Body)
 		if err != nil {
@@ -202,11 +221,13 @@ func runInvoke(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("server returned unexpected status code: %d - %s", res.StatusCode, string(resBody))
 	}
 
+	// 异步调用成功提示
 	if invokeAsync && res.StatusCode == http.StatusAccepted {
 		fmt.Fprintf(os.Stderr, "Function submitted asynchronously.\n")
 		return nil
 	}
 
+	// 输出响应结果到标准输出
 	if _, err := io.Copy(os.Stdout, res.Body); err != nil {
 		return fmt.Errorf("cannot read result from OpenFaaS on URL: %s %s", gateway, err)
 	}
@@ -214,6 +235,7 @@ func runInvoke(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// generateSignature 生成 SHA256 HMAC 签名
 func generateSignature(message []byte, key string) string {
 	hash := hmac.Sign(message, []byte(key), crypto.SHA256.New)
 	signature := hex.EncodeToString(hash)
@@ -221,17 +243,18 @@ func generateSignature(message []byte, key string) string {
 	return fmt.Sprintf(`%s=%s`, "sha256", string(signature[:]))
 }
 
+// missingSignFlag 校验签名参数是否完整
 func missingSignFlag(header string, key string) bool {
 	return (len(header) > 0 && len(key) == 0) || (len(header) == 0 && len(key) > 0)
 }
 
-// parseHeaders parses header values from the header command flag
+// parseHeaders 解析请求头，支持 Key: Value 格式
 func parseHeaders(headers []string) (http.Header, error) {
 	httpHeader := http.Header{}
 	warningShown := false
 
 	for _, header := range headers {
-		// First try the preferred Key: Value format
+		// 优先使用标准格式 Key: Value
 		parts := strings.SplitN(header, ":", 2)
 		if len(parts) == 2 {
 			key := strings.TrimSpace(parts[0])
@@ -248,7 +271,7 @@ func parseHeaders(headers []string) (http.Header, error) {
 			continue
 		}
 
-		// Fallback to deprecated key=value format
+		// 兼容旧版 key=value 格式
 		parts = strings.SplitN(header, "=", 2)
 		if len(parts) == 2 {
 			key := parts[0]
@@ -261,7 +284,7 @@ func parseHeaders(headers []string) (http.Header, error) {
 				return httpHeader, fmt.Errorf("the --header or -H flag must take the form of 'Key: Value' or 'key=value' (empty value given)")
 			}
 
-			// Print deprecation warning only once
+			// 只显示一次弃用警告
 			if !warningShown {
 				fmt.Fprintf(os.Stderr, "Warning: Using deprecated 'key=value' format for headers. Please use 'Key: Value' format instead.\n")
 				warningShown = true
@@ -276,7 +299,7 @@ func parseHeaders(headers []string) (http.Header, error) {
 	return httpHeader, nil
 }
 
-// parseQueryValues parses query values from the query command flags
+// parseQueryValues 解析 ?key=value 查询参数
 func parseQueryValues(query []string) (url.Values, error) {
 	v := url.Values{}
 
@@ -301,7 +324,7 @@ func parseQueryValues(query []string) (url.Values, error) {
 	return v, nil
 }
 
-// validateMethod validates the HTTP request method
+// validateHTTPMethod 校验 HTTP 方法是否合法
 func validateHTTPMethod(httpMethod string) error {
 	var allowedMethods = []string{
 		http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete,
@@ -314,9 +337,7 @@ func validateHTTPMethod(httpMethod string) error {
 	return nil
 }
 
-// NOTE: This is far from a fully compliant parser per RFC 7235.
-// It is only intended to correctly capture the realm directive in the
-// known format as returned by the OpenFaaS watchdogs.
+// getRealm 解析 WWW-Authenticate 头获取 realm 字段（简易解析）
 func getRealm(headerVal string) string {
 	parts := strings.SplitN(headerVal, " ", 2)
 

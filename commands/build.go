@@ -22,7 +22,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// Flags that are to be added to commands.
+// 命令行标志变量定义
 var (
 	nocache          bool
 	squash           bool
@@ -42,13 +42,13 @@ var (
 )
 
 func init() {
-	// Setup flags that are used by multiple commands (variables defined in faas.go)
+	// 绑定通用命令行参数
 	buildCmd.Flags().StringVar(&image, "image", "", "Docker image name to build")
 	buildCmd.Flags().StringVar(&handler, "handler", "", "Directory with handler for function, e.g. handler.js")
 	buildCmd.Flags().StringVar(&functionName, "name", "", "Name of the deployed function")
 	buildCmd.Flags().StringVar(&language, "lang", "", "Programming language template")
 
-	// Setup flags that are used only by this command (variables defined above)
+	// 绑定 build 命令专用参数
 	buildCmd.Flags().BoolVar(&nocache, "no-cache", false, "Do not use Docker's build cache")
 	buildCmd.Flags().BoolVar(&squash, "squash", false, `Use Docker's squash flag for smaller images [experimental] `)
 	buildCmd.Flags().IntVar(&parallel, "parallel", 1, "Build in parallel to depth specified.")
@@ -66,13 +66,14 @@ func init() {
 	buildCmd.Flags().BoolVar(&pullDebug, "debug", false, "Enable debug output when pulling templates")
 	buildCmd.Flags().BoolVar(&overwrite, "overwrite", true, "Overwrite existing templates from the template repository")
 
-	// Set bash-completion.
+	// 配置命令行自动补全
 	_ = buildCmd.Flags().SetAnnotation("handler", cobra.BashCompSubdirsInDir, []string{})
 
+	// 将 build 命令添加到根命令
 	faasCmd.AddCommand(buildCmd)
 }
 
-// buildCmd allows the user to build an OpenFaaS function container
+// buildCmd 构建 OpenFaaS 函数容器的主命令
 var buildCmd = &cobra.Command{
 	Use: `build -f YAML_FILE [--no-cache] [--squash]
   faas-cli build --image IMAGE_NAME
@@ -107,7 +108,7 @@ via flags.`,
 	RunE:    runBuild,
 }
 
-// preRunBuild validates args & flags
+// preRunBuild 构建前校验参数
 func preRunBuild(cmd *cobra.Command, args []string) error {
 	applyRemoteBuilderEnvironment()
 
@@ -128,6 +129,7 @@ func preRunBuild(cmd *cobra.Command, args []string) error {
 	return err
 }
 
+// parseBuildArgs 解析 --build-arg 参数为键值对 map
 func parseBuildArgs(args []string) (map[string]string, error) {
 	mapped := make(map[string]string)
 
@@ -159,6 +161,7 @@ func parseBuildArgs(args []string) (map[string]string, error) {
 	return mapped, nil
 }
 
+// runBuild 执行构建主逻辑
 func runBuild(cmd *cobra.Command, args []string) error {
 
 	var services stack.Services
@@ -176,6 +179,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	cwd, _ := os.Getwd()
 	templatesPath := filepath.Join(cwd, TemplateDirectory)
 
+	// 自动拉取缺失的函数模板
 	if len(services.StackConfiguration.TemplateConfigs) > 0 && !disableStackPull {
 		missingTemplates, err := getMissingTemplates(services.Functions, templatesPath)
 		if err != nil {
@@ -191,9 +195,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	} else {
 
-		// When the configuration.templates section is empty, it's only possible to pull from the store
-		// this store can be overridden by a flag or environment variable
-
+		// 从模板仓库拉取缺失模板
 		missingTemplates, err := getMissingTemplates(services.Functions, templatesPath)
 		if err != nil {
 			return fmt.Errorf("error accessing existing templates folder: %s", err.Error())
@@ -208,6 +210,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 
 	}
 
+	// 不使用 YAML，直接用命令行参数构建单个函数
 	if len(services.Functions) == 0 {
 		if len(image) == 0 {
 			return fmt.Errorf("please provide a valid --image name for your Docker image")
@@ -244,6 +247,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// 批量构建 stack.yaml 中的所有函数
 	errors := build(&services, parallel, shrinkwrap, quietBuild)
 	if len(errors) > 0 {
 		errorSummary := "Errors received during build:\n"
@@ -256,6 +260,7 @@ func runBuild(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
+// build 并行构建多个函数
 func build(services *stack.Services, queueDepth int, shrinkwrap, quietBuild bool) []error {
 	startOuter := time.Now()
 
@@ -275,9 +280,11 @@ func build(services *stack.Services, queueDepth int, shrinkwrap, quietBuild bool
 				if len(function.Language) == 0 {
 					fmt.Println("Please provide a valid language for your function.")
 				} else {
+					// 合并 YAML 与命令行中的构建参数
 					combinedBuildOptions := combineBuildOpts(function.BuildOptions, buildOptions)
 					combinedBuildArgMap := util.MergeMap(function.BuildArgs, buildArgMap)
 					combinedExtraPaths := util.MergeSlice(services.StackConfiguration.CopyExtraPaths, copyExtra)
+					// 执行构建
 					err := builder.BuildImage(function.Image,
 						function.Handler,
 						function.Name,
@@ -313,6 +320,7 @@ func build(services *stack.Services, queueDepth int, shrinkwrap, quietBuild bool
 
 	}
 
+	// 分发任务到工作协程
 	for k, function := range services.Functions {
 		if function.SkipBuild {
 			fmt.Printf("Skipping build of: %s.\n", function.Name)
@@ -331,7 +339,7 @@ func build(services *stack.Services, queueDepth int, shrinkwrap, quietBuild bool
 	return errors
 }
 
-// pullTemplates pulls templates from specified git remote. templateURL may be a pinned repository.
+// pullTemplates 从 Git 仓库拉取模板
 func pullTemplates(templateURL, templateName string) error {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -349,7 +357,6 @@ func pullTemplates(templateURL, templateName string) error {
 				return err
 			}
 		} else {
-			// Perhaps there was a permissions issue or something else.
 			return err
 		}
 	}
@@ -357,6 +364,7 @@ func pullTemplates(templateURL, templateName string) error {
 	return nil
 }
 
+// combineBuildOpts 合并 YAML 和命令行中的 build-options
 func combineBuildOpts(YAMLBuildOpts []string, buildFlagBuildOpts []string) []string {
 	return util.MergeSlice(YAMLBuildOpts, buildFlagBuildOpts)
 }
