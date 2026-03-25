@@ -1,5 +1,7 @@
 package flags
 
+// 测试 TimestampFlag 类型
+
 import (
 	"testing"
 	"time"

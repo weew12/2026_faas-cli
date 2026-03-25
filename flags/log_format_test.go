@@ -1,5 +1,7 @@
 package flags
 
+// 测试 LogFormat 类型
+
 import (
 	"errors"
 	"testing"
