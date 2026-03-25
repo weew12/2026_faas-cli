@@ -1,3 +1,6 @@
+// 测试 version 包
+// 验证 BuildVersion 函数在不同版本号下的行为
+
 package version
 
 import (
