@@ -1,13 +1,15 @@
 // Copyright (c) OpenFaaS Author(s) 2017. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+// Package config 提供 OpenFaaS CLI 的配置管理功能
+// 包含配置文件读写、认证信息存储/查询/删除、路径管理、编解码等核心能力
+// 配置默认存储于 ~/.openfaas/config.yml，支持环境变量自定义路径
 package config
 
 import (
 	"bytes"
 	"encoding/base64"
 	"errors"
-
 	"fmt"
 	"net/url"
 	"os"
@@ -19,61 +21,67 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// AuthType auth type
+// AuthType 认证类型字符串定义
 type AuthType string
 
 const (
-	//BasicAuthType basic authentication type
+	// BasicAuthType 基础认证类型（用户名+密码）
 	BasicAuthType = "basic"
-	//Oauth2AuthType oauth2 authentication type
+	// Oauth2AuthType OAuth2 认证类型
 	Oauth2AuthType = "oauth2"
 
-	// ConfigLocationEnv is the name of he env variable used
-	// to configure the location of the faas-cli config folder.
-	// When not set, DefaultDir location is used.
+	// ConfigLocationEnv 用于覆盖默认配置目录的环境变量名称
 	ConfigLocationEnv string = "OPENFAAS_CONFIG"
 
-	DefaultDir         string      = "~/.openfaas"
-	DefaultFile        string      = "config.yml"
+	// DefaultDir 默认配置存储目录（用户主目录下）
+	DefaultDir string = "~/.openfaas"
+	// DefaultFile 默认配置文件名
+	DefaultFile string = "config.yml"
+	// DefaultPermissions 默认配置目录权限（仅当前用户可读写）
 	DefaultPermissions os.FileMode = 0700
 
-	// DefaultCIDir creates the 'openfaas' directory in the current directory
-	// if running in a CI environment.
+	// DefaultCIDir CI 环境下的配置目录（当前工作目录）
 	DefaultCIDir string = ".openfaas"
-	// DefaultCIPermissions creates the config file with elevated permissions
-	// for it to be read by multiple users when running in a CI environment.
+	// DefaultCIPermissions CI 环境下的配置目录权限（允许其他用户读取）
 	DefaultCIPermissions os.FileMode = 0744
 )
 
-// ConfigFile for OpenFaaS CLI exclusively.
+// ConfigFile OpenFaaS CLI 配置文件顶层结构
 type ConfigFile struct {
-	AuthConfigs []AuthConfig `yaml:"auths"`
-	FilePath    string       `yaml:"-"`
+	AuthConfigs []AuthConfig `yaml:"auths"` // 认证配置列表
+	FilePath    string       `yaml:"-"`     // 配置文件在磁盘上的路径（不序列化到YAML）
 }
 
+// AuthConfig 网关认证配置项
 type AuthConfig struct {
-	Gateway string   `yaml:"gateway,omitempty"`
-	Auth    AuthType `yaml:"auth,omitempty"`
-	Token   string   `yaml:"token,omitempty"`
-	Options []Option `yaml:"options,omitempty"`
+	Gateway string   `yaml:"gateway,omitempty"` // OpenFaaS 网关地址
+	Auth    AuthType `yaml:"auth,omitempty"`    // 认证类型
+	Token   string   `yaml:"token,omitempty"`   // 认证令牌/凭证
+	Options []Option `yaml:"options,omitempty"` // 扩展配置项
 }
 
+// Option 键值对形式的扩展配置
 type Option struct {
-	Name  string `yaml:"name"`
-	Value string `yaml:"value"`
+	Name  string `yaml:"name"`  // 配置项名称
+	Value string `yaml:"value"` // 配置项值
 }
 
+// ErrConfigNotFound 配置文件不存在错误
 var ErrConfigNotFound = errors.New("config file not found")
 
+// AuthConfigNotFoundError 未找到指定网关的认证配置错误
 type AuthConfigNotFoundError struct {
-	Gateway string
+	Gateway string // 未找到认证的网关地址
 }
 
+// Error 实现 error 接口，返回格式化的错误信息
 func (e *AuthConfigNotFoundError) Error() string {
 	return fmt.Sprintf("no auth config found for %s", e.Gateway)
 }
 
-// New initializes a config file for the given file path
+// New 初始化一个配置文件实例
+// 参数 filePath：配置文件在磁盘上的完整路径
+// 返回：配置实例或创建失败的错误
 func New(filePath string) (*ConfigFile, error) {
 	if filePath == "" {
 		return nil, fmt.Errorf("can't create config with empty filePath")
@@ -86,29 +94,27 @@ func New(filePath string) (*ConfigFile, error) {
 	return conf, nil
 }
 
-// ConfigDir returns the path to the faas-cli config directory.
-// When
-// 1. CI = "true" and OPENFAAS_CONFIG="", then it will return `.openfaas`, which is located in the current working directory.
-// 2. CI = "true" and OPENFAAS_CONFIG="<path>", then it will return the path value in  OPENFAAS_CONFIG
-// 3. CI = "" and OPENFAAS_CONFIG="", then it will return the default location ~/.openfaas
+// ConfigDir 获取配置文件存储目录路径
+// 优先级：环境变量OPENFAAS_CONFIG > CI环境默认路径 > 主目录默认路径
 func ConfigDir() string {
 	override := os.Getenv(ConfigLocationEnv)
 	ci := isRunningInCI()
 
 	switch {
-	// case (1) from docs string
+	// CI环境且未设置自定义路径
 	case ci && override == "":
 		return DefaultCIDir
-	// case (2) from the doc string
+	// 设置了自定义路径
 	case override != "":
-		// case (3) from the doc string
 		return override
+	// 常规环境使用默认路径
 	default:
 		return DefaultDir
 	}
 }
 
-// isRunningInCI checks the ENV var CI and returns true if it's set to true or 1
+// isRunningInCI 判断当前是否运行在CI环境中
+// 通过检查环境变量 CI=true 或 CI=1 进行判断
 func isRunningInCI() bool {
 	if env, ok := os.LookupEnv("CI"); ok {
 		if env == "true" || env == "1" {
@@ -118,7 +124,8 @@ func isRunningInCI() bool {
 	return false
 }
 
-// EnsureFile creates the root dir and config file
+// EnsureFile 确保配置目录和文件存在，不存在则自动创建
+// 返回：配置文件完整路径 或 创建失败的错误
 func EnsureFile() (string, error) {
 	permission := DefaultPermissions
 	dir := ConfigDir()
@@ -135,6 +142,7 @@ func EnsureFile() (string, error) {
 		return "", fmt.Errorf("error creating directory: %s - %w", filepath.Dir(filePath), err)
 	}
 
+	// 文件不存在则创建空文件
 	if _, err := os.Stat(filePath); err != nil && os.IsNotExist(err) {
 		file, err := os.OpenFile(filePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
@@ -146,7 +154,7 @@ func EnsureFile() (string, error) {
 	return filePath, nil
 }
 
-// FileExists returns true if the config file is located at the default path
+// fileExists 判断默认路径下的配置文件是否存在
 func fileExists() bool {
 	dir := ConfigDir()
 	dirPath, err := homedir.Expand(dir)
@@ -162,7 +170,8 @@ func fileExists() bool {
 	return true
 }
 
-// Save writes the config to disk
+// save 将配置写入磁盘文件
+// 方法接收者：配置文件实例
 func (configFile *ConfigFile) save() error {
 	file, err := os.OpenFile(configFile.FilePath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 	if err != nil {
@@ -172,7 +181,7 @@ func (configFile *ConfigFile) save() error {
 
 	var buff bytes.Buffer
 	yamlEncoder := yaml.NewEncoder(&buff)
-	yamlEncoder.SetIndent(2) // this is what you're looking for
+	yamlEncoder.SetIndent(2) // 设置YAML缩进为2
 	if err := yamlEncoder.Encode(&configFile); err != nil {
 		return err
 	}
@@ -181,7 +190,8 @@ func (configFile *ConfigFile) save() error {
 	return err
 }
 
-// Load reads the yml file from disk
+// load 从磁盘读取并加载配置文件
+// 方法接收者：配置文件实例
 func (configFile *ConfigFile) load() error {
 	conf := &ConfigFile{}
 
@@ -198,13 +208,15 @@ func (configFile *ConfigFile) load() error {
 		return err
 	}
 
+	// 仅覆盖认证配置，保留其他字段
 	if len(conf.AuthConfigs) > 0 {
 		configFile.AuthConfigs = conf.AuthConfigs
 	}
 	return nil
 }
 
-// EncodeAuth encodes the username and password strings to base64
+// EncodeAuth 将用户名和密码编码为Base64字符串
+// 用于Basic认证的凭证存储
 func EncodeAuth(username string, password string) string {
 	input := username + ":" + password
 	msg := []byte(input)
@@ -213,7 +225,8 @@ func EncodeAuth(username string, password string) string {
 	return string(encoded)
 }
 
-// DecodeAuth decodes the input string from base64 to username and password
+// DecodeAuth 将Base64字符串解码为用户名和密码
+// 返回：用户名、密码、解码失败的错误
 func DecodeAuth(input string) (string, string, error) {
 	decoded, err := base64.StdEncoding.DecodeString(input)
 	if err != nil {
@@ -226,10 +239,12 @@ func DecodeAuth(input string) (string, string, error) {
 	return arr[0], arr[1], nil
 }
 
-// UpdateAuthConfig creates or updates the username and password for a given gateway
+// UpdateAuthConfig 更新或新增网关认证配置
+// 存在则覆盖，不存在则追加
 func UpdateAuthConfig(authConfig AuthConfig) error {
 	gateway := authConfig.Gateway
 
+	// 校验网关地址格式
 	_, err := url.ParseRequestURI(gateway)
 	if err != nil || len(gateway) < 1 {
 		return fmt.Errorf("invalid gateway URL")
@@ -249,6 +264,7 @@ func UpdateAuthConfig(authConfig AuthConfig) error {
 		return err
 	}
 
+	// 查找已存在的配置索引
 	index := -1
 	for i, v := range cfg.AuthConfigs {
 		if gateway == v.Gateway {
@@ -257,20 +273,18 @@ func UpdateAuthConfig(authConfig AuthConfig) error {
 		}
 	}
 
+	// 覆盖或追加配置
 	if index == -1 {
 		cfg.AuthConfigs = append(cfg.AuthConfigs, authConfig)
 	} else {
 		cfg.AuthConfigs[index] = authConfig
 	}
 
-	if err := cfg.save(); err != nil {
-		return err
-	}
-
-	return nil
+	return cfg.save()
 }
 
-// LookupAuthConfig returns the username and password for a given gateway
+// LookupAuthConfig 根据网关地址查询认证配置
+// 返回：查询到的认证配置 或 未找到错误
 func LookupAuthConfig(gateway string) (AuthConfig, error) {
 	var authConfig AuthConfig
 
@@ -292,6 +306,7 @@ func LookupAuthConfig(gateway string) (AuthConfig, error) {
 		return authConfig, err
 	}
 
+	// 遍历匹配网关地址
 	for _, v := range cfg.AuthConfigs {
 		if gateway == v.Gateway {
 			authConfig = v
@@ -302,7 +317,8 @@ func LookupAuthConfig(gateway string) (AuthConfig, error) {
 	return authConfig, &AuthConfigNotFoundError{Gateway: gateway}
 }
 
-// RemoveAuthConfig deletes the username and password for a given gateway
+// RemoveAuthConfig 根据网关地址删除认证配置
+// 不存在则返回未找到错误
 func RemoveAuthConfig(gateway string) error {
 	if !fileExists() {
 		return ErrConfigNotFound
@@ -322,6 +338,7 @@ func RemoveAuthConfig(gateway string) error {
 		return err
 	}
 
+	// 查找待删除配置索引
 	index := -1
 	for i, v := range cfg.AuthConfigs {
 		if gateway == v.Gateway {
@@ -332,16 +349,14 @@ func RemoveAuthConfig(gateway string) error {
 
 	if index > -1 {
 		cfg.AuthConfigs = removeAuthByIndex(cfg.AuthConfigs, index)
-		if err := cfg.save(); err != nil {
-			return err
-		}
-	} else {
-		return &AuthConfigNotFoundError{Gateway: gateway}
+		return cfg.save()
 	}
 
-	return nil
+	return &AuthConfigNotFoundError{Gateway: gateway}
 }
 
+// removeAuthByIndex 根据索引删除认证配置（内部工具方法）
+// 切片原地删除，不保留原顺序
 func removeAuthByIndex(s []AuthConfig, index int) []AuthConfig {
 	return append(s[:index], s[index+1:]...)
 }

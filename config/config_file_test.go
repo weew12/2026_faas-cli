@@ -1,6 +1,7 @@
 // Copyright (c) OpenFaaS Author(s) 2017. All rights reserved.
 // Licensed under the MIT license. See LICENSE file in the project root for full license information.
 
+// OpenFaaS CLI 的配置管理功能测试
 package config
 
 import (
