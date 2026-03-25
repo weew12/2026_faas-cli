@@ -1,5 +1,7 @@
 # Using template from external repository
 
+faas-cli 使用外部仓库中的模板
+
 ## Repository structure
 
 The external repository must have a directory named ```template``` at the root directory, in which there are directories
