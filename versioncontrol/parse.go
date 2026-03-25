@@ -1,3 +1,5 @@
+// Package versioncontrol 提供 Git 仓库地址解析、验证工具
+// 用于校验 Git 远程地址格式、解析带版本锁定的仓库地址
 package versioncontrol
 
 import (
@@ -6,55 +8,51 @@ import (
 )
 
 const (
-	pinCharacter             = `#`
-	gitRemoteRegexpStr       = `(git|ssh|https?|git@[-\w.]+):(\/\/)?([^#]*?(?:\.git)?\/?)`
-	gitPinnedRemoteRegexpStr = gitRemoteRegexpStr + pinCharacter + `[-\/\d\w._]+$`
-	gitRemoteRepoRegexpStr   = gitRemoteRegexpStr + `$`
+	pinCharacter             = `#`                                                         // 版本锁定分隔符
+	gitRemoteRegexpStr       = `(git|ssh|https?|git@[-\w.]+):(\/\/)?([^#]*?(?:\.git)?\/?)` // Git 地址正则基础
+	gitPinnedRemoteRegexpStr = gitRemoteRegexpStr + pinCharacter + `[-\/\d\w._]+$`         // 带 # 锁定版本的 Git 地址正则
+	gitRemoteRepoRegexpStr   = gitRemoteRegexpStr + `$`                                    // 标准 Git 地址正则
 )
 
 var (
-	gitPinnedRegexp = regexp.MustCompile(gitPinnedRemoteRegexpStr)
-	gitRemoteRegexp = regexp.MustCompile(gitRemoteRepoRegexpStr)
+	gitPinnedRegexp = regexp.MustCompile(gitPinnedRemoteRegexpStr) // 匹配带版本锁定的 Git 地址
+	gitRemoteRegexp = regexp.MustCompile(gitRemoteRepoRegexpStr)   // 匹配标准 Git 地址
 )
 
-// IsGitRemote validates if the supplied string is a valid git remote url value
+// IsGitRemote 验证输入字符串是否为合法的 Git 远程仓库地址
+// 支持 git/ssh/http/https/git@ 格式
 func IsGitRemote(repoURL string) bool {
-	// If using a Regexp in multiple goroutines,
-	// giving each goroutine its own copy helps to avoid lock contention.
-	// https://golang.org/pkg/regexp/#Regexp.Copy
+	// 复制正则对象避免多 goroutine 锁竞争
 	return gitRemoteRegexp.Copy().MatchString(repoURL)
 }
 
-// IsPinnedGitRemote validates if the supplied string is a valid git remote url value
+// IsPinnedGitRemote 验证输入是否为带版本锁定的 Git 地址
+// 格式：仓库地址#分支/标签/SHA
 func IsPinnedGitRemote(repoURL string) bool {
-	// If using a Regexp in multiple goroutines,
-	// giving each goroutine its own copy helps to avoid lock contention.
-	// https://golang.org/pkg/regexp/#Regexp.Copy
+	// 复制正则对象避免多 goroutine 锁竞争
 	return gitPinnedRegexp.Copy().MatchString(repoURL)
 }
 
-// ParsePinnedRemote returns the remote url and contraint value from repository url
+// ParsePinnedRemote 解析带 # 版本锁定的 Git 地址
+// 将地址拆分为 仓库地址 + 引用名（分支/标签/SHA）
+// 返回：remoteURL 仓库地址, refName 引用名
 func ParsePinnedRemote(repoURL string) (remoteURL, refName string) {
-	// default refName is empty
-	// the template fetcher can detect this and will pull the default when
-	// the ref is empty
+	// 默认引用名为空，使用仓库默认分支
 	refName = ""
 	remoteURL = repoURL
 
-	// If using a Regexp in multiple goroutines,
-	// giving each goroutine its own copy helps to avoid lock contention.
-	// https://golang.org/pkg/regexp/#Regexp.Copy
+	// 非锁定格式直接返回
 	if !IsPinnedGitRemote(repoURL) {
 		return remoteURL, refName
 	}
 
-	// handle ssh special case
-
+	// 按 # 分割仓库地址与引用
 	atIndex := strings.LastIndex(repoURL, pinCharacter)
 	if atIndex > 0 {
 		remoteURL, refName, _ = strings.Cut(repoURL, pinCharacter)
 	}
 
+	// 验证分割后的基础地址是否合法
 	if !IsGitRemote(remoteURL) {
 		return remoteURL, refName
 	}

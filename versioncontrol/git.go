@@ -1,3 +1,5 @@
+// Package versioncontrol 提供Git版本控制相关操作封装
+// 包含Git克隆、检出、初始化、SHA/分支获取等命令，用于OpenFaaS模板拉取与仓库管理
 package versioncontrol
 
 import (
@@ -7,7 +9,8 @@ import (
 	"github.com/openfaas/faas-cli/exec"
 )
 
-// GitCloneBranch clones a specific branch of a repo into a directory
+// GitCloneBranch 克隆指定分支的仓库到目标目录
+// 浅克隆（深度1）、禁用自动换行转换
 var GitCloneBranch = &vcsCmd{
 	name:   "Git",
 	cmd:    "git",
@@ -15,8 +18,8 @@ var GitCloneBranch = &vcsCmd{
 	scheme: []string{"git", "https", "http", "git+ssh", "ssh"},
 }
 
-// GitCloneFullDepth clones a repo into a directory with full depth so that a
-// SHA can be checked out after
+// GitCloneFullDepth 完整克隆仓库（非浅克隆）
+// 用于后续需要检出指定SHA的场景
 var GitCloneFullDepth = &vcsCmd{
 	name:   "Git",
 	cmd:    "git",
@@ -24,7 +27,8 @@ var GitCloneFullDepth = &vcsCmd{
 	scheme: []string{"git", "https", "http", "git+ssh", "ssh"},
 }
 
-// GitCloneDefault clones the default branch of a repo into a directory
+// GitCloneDefault 克隆仓库的默认分支到目标目录
+// 浅克隆、禁用自动换行转换
 var GitCloneDefault = &vcsCmd{
 	name:   "Git",
 	cmd:    "git",
@@ -32,7 +36,7 @@ var GitCloneDefault = &vcsCmd{
 	scheme: []string{"git", "https", "http", "git+ssh", "ssh"},
 }
 
-// GitCheckout checks out a specific REF of a repo into a directory
+// GitCheckout 检出仓库的指定引用（分支/标签/SHA）
 var GitCheckout = &vcsCmd{
 	name:   "Git",
 	cmd:    "git",
@@ -40,7 +44,7 @@ var GitCheckout = &vcsCmd{
 	scheme: []string{"git", "https", "http", "git+ssh", "ssh"},
 }
 
-// GitCheckRefName defines the command that validates if a string is a valid reference name or sha
+// GitCheckRefName 校验字符串是否为合法的Git引用名（分支/标签/SHA）
 var GitCheckRefName = &vcsCmd{
 	name:   "Git",
 	cmd:    "git",
@@ -48,7 +52,8 @@ var GitCheckRefName = &vcsCmd{
 	scheme: []string{"git", "https", "http", "git+ssh", "ssh"},
 }
 
-// GitInitRepo initializes the working directory add commit all files & directories for Git 2.28.0+
+// GitInitRepo2_28_0 适配 Git 2.28.0+ 版本的仓库初始化命令
+// 初始化仓库 → 配置用户信息 → 添加并提交所有文件
 var GitInitRepo2_28_0 = &vcsCmd{
 	name: "Git",
 	cmd:  "git",
@@ -63,6 +68,8 @@ var GitInitRepo2_28_0 = &vcsCmd{
 	scheme: []string{"git", "https", "http", "git+ssh", "ssh"},
 }
 
+// GitInitRepoClassic 兼容旧版Git的仓库初始化命令
+// 无 --initial-branch 参数
 var GitInitRepoClassic = &vcsCmd{
 	name: "Git",
 	cmd:  "git",
@@ -77,16 +84,9 @@ var GitInitRepoClassic = &vcsCmd{
 	scheme: []string{"git", "https", "http", "git+ssh", "ssh"},
 }
 
-// GetGitDescribe returns the human readable name for the current commit using `git-describe`
+// GetGitDescribe 获取当前提交的可读标识（标签+距离+短SHA）
+// 格式示例：v1.2.3-5-g123456
 func GetGitDescribe() string {
-	// git-describe - Give an object a human readable name based on an available ref
-	// --tags                use any tag, even unannotated
-	// --always              show abbreviated commit object as fallback
-
-	// using --tags, means that the output should look like v1.2.2-1-g3443110 where the last
-	// <most-recent-parent-tag>-<number-of-commits-to-that-tag>-g<short-sha>
-	// using --always, means that if the repo does not use tags, then we will still get the <short-sha>
-	// as output, similar to GetGitSHA
 	getDescribeCommand := []string{"git", "describe", "--tags", "--always"}
 	sha := exec.CommandWithOutput(getDescribeCommand, true)
 	if strings.Contains(sha, "Not a git repository") {
@@ -97,7 +97,8 @@ func GetGitDescribe() string {
 	return sha
 }
 
-// GetGitSHA returns the short Git commit SHA from local repo
+// GetGitSHAFor 获取指定目录下的Git提交SHA值
+// short=true 返回短SHA，false 返回完整SHA
 func GetGitSHAFor(path string, short bool) (string, error) {
 	args := []string{"-C", path, "rev-parse"}
 	if short {
@@ -114,7 +115,7 @@ func GetGitSHAFor(path string, short bool) (string, error) {
 	return strings.TrimSpace(sha), nil
 }
 
-// GetGitSHA returns the short Git commit SHA from local repo
+// GetGitSHA 获取当前目录的短Git提交SHA值
 func GetGitSHA() string {
 	getShaCommand := []string{"git", "rev-parse", "--short", "HEAD"}
 	sha := exec.CommandWithOutput(getShaCommand, true)
@@ -126,6 +127,7 @@ func GetGitSHA() string {
 	return sha
 }
 
+// GetGitBranch 获取当前所在的Git分支名
 func GetGitBranch() string {
 	getBranchCommand := []string{"git", "rev-parse", "--symbolic-full-name", "--abbrev-ref", "HEAD"}
 	branch := exec.CommandWithOutput(getBranchCommand, true)

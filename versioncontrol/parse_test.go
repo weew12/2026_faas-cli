@@ -1,5 +1,7 @@
 package versioncontrol
 
+// 测试
+
 import (
 	"fmt"
 	"testing"

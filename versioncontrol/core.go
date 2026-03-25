@@ -1,5 +1,5 @@
-// Package versioncontrol is a simplified/stripped down version of go/internal/get/vcs that
-// is aimed at the simplier temporary git clone needed for OpenFaaS template fetch.
+// Package versioncontrol 是 go/internal/get/vcs 的简化精简版本
+// 专为 OpenFaaS 模板拉取场景设计，用于执行临时 Git 克隆等版本控制操作
 package versioncontrol
 
 import (
@@ -11,21 +11,16 @@ import (
 	"strings"
 )
 
+// vcsCmd 表示一个版本控制系统命令（如 Git）
 type vcsCmd struct {
-	name string
-
-	// name of binary to invoke command
-	cmd string
-
-	// commands to execute with the binary
-	cmds []string
-
-	// uri schemes the command can apply to
-	scheme []string
+	name   string   // 版本控制系统名称
+	cmd    string   // 要调用的命令行工具名称（如 git）
+	cmds   []string // 要执行的命令序列
+	scheme []string // 该命令支持的 URI 协议（如 http、https、ssh）
 }
 
-// Invoke executes the vcsCmd replacing varibables in the cmds with the keyval
-// variables passed.
+// Invoke 执行版本控制命令
+// 将命令中的变量替换为传入的参数，并依次执行所有命令
 func (v *vcsCmd) Invoke(dir string, args map[string]string) error {
 	for _, cmd := range v.cmds {
 		if _, err := v.run(dir, cmd, args, true); err != nil {
@@ -35,24 +30,31 @@ func (v *vcsCmd) Invoke(dir string, args map[string]string) error {
 	return nil
 }
 
-// run is the generalized implementation of executing our commands.
+// run 执行具体的外部命令
+// dir：执行命令的工作目录
+// cmdline：命令行字符串
+// keyval：变量替换键值对
+// verbose：是否输出错误详情
 func (v *vcsCmd) run(dir string, cmdline string, keyval map[string]string, verbose bool) ([]byte, error) {
 	args := strings.Fields(cmdline)
+	// 替换命令中的 {key} 格式变量
 	for i, arg := range args {
 		args[i] = replaceVars(keyval, arg)
 	}
 
-	// run external command
+	// 检查命令是否存在
 	_, err := exec.LookPath(v.cmd)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "missing %s command", v.name)
 		return nil, err
 	}
 
+	// 调试模式输出命令
 	if os.Getenv("FAAS_DEBUG") == "1" {
 		log.Printf("[git] %s %s", v.cmd, strings.Join(args, " "))
 	}
 
+	// 构建并执行命令
 	cmd := exec.Command(v.cmd, args...)
 	cmd.Dir = dir
 	cmd.Env = envWithPWD(cmd.Dir)
@@ -71,8 +73,8 @@ func (v *vcsCmd) run(dir string, cmdline string, keyval map[string]string, verbo
 	return out, nil
 }
 
-// replaceVars rewrites a string to replace variables written as {k}
-// with the value vars[k] for each key k in vars.
+// replaceVars 替换字符串中的 {key} 变量
+// 将 s 中的 {k} 替换为 vars[k]
 func replaceVars(vars map[string]string, s string) string {
 	for key, value := range vars {
 		s = strings.Replace(s, "{"+key+"}", value, -1)
@@ -80,9 +82,8 @@ func replaceVars(vars map[string]string, s string) string {
 	return s
 }
 
-// envWithPWD creates a new ENV slice from the existing ENV, updating or adding
-// the PWD flag to the specified dir. Our commands are usually given abs paths,
-// but just this is set just incase the command is sensitive to the value.
+// envWithPWD 更新环境变量中的 PWD 为指定目录
+// 确保命令执行时的工作目录与 PWD 一致
 func envWithPWD(dir string) []string {
 	env := os.Environ()
 	updated := false
@@ -96,6 +97,5 @@ func envWithPWD(dir string) []string {
 	if !updated {
 		env = append(env, "PWD="+dir)
 	}
-
 	return env
 }
