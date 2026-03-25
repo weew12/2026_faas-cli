@@ -1,31 +1,54 @@
+#  OpenFaaS CLI 多平台、多架构统一构建 Dockerfile
+
+# ==============================
+# 阶段 1：许可证检查工具
+# 用途：检查所有 Go 文件是否有正确的开源许可证头
+# ==============================
 FROM ghcr.io/openfaas/license-check:0.4.2 as license-check
 
-# Build stage
+# ==============================
+# 阶段 2：核心编译环境（所有平台共用）
+# 作用：代码检查 + 单元测试
+# ==============================
 FROM --platform=${BUILDPLATFORM:-linux/amd64} golang:1.25 as builder
 
+# 外部传入：Git 提交号、版本号
 ARG GIT_COMMIT
 ARG VERSION
 
+# Go 环境配置
 ENV GO111MODULE=on
-ENV GOFLAGS=-mod=vendor
-ENV CGO_ENABLED=0
+ENV GOFLAGS=-mod=vendor  # 使用 vendor 依赖
+ENV CGO_ENABLED=0       # 静态编译，不依赖系统 C 库
 
 WORKDIR /usr/bin/
 
+# 复制许可证检查工具
 COPY --from=license-check /license-check /usr/bin/
 
+# 复制全部源代码
 WORKDIR /go/src/github.com/openfaas/faas-cli
 COPY . .
 
-# Run a gofmt and exclude all vendored code.
+# ==============================
+# 代码风格检查
+# 如果代码未格式化，直接报错并退出
+# ==============================
 RUN test -z "$(gofmt -l $(find . -type f -name '*.go' -not -path "./vendor/*"))" || { echo "Run \"gofmt -s -w\" on your Golang code"; exit 1; }
 
-# ldflags "-s -w" strips binary
-# ldflags -X injects commit version into binary
-
+# ==============================
+# 1. 许可证检查
+# 2. 运行单元测试（排除不需要测试的目录）
+# ==============================
 RUN /usr/bin/license-check -path ./ --verbose=false "Alex Ellis" "OpenFaaS Author(s)" "OpenFaaS Ltd" \
        && go test $(go list ./... | grep -v /vendor/ | grep -v /template/|grep -v /build/) -cover
 
+# ==============================
+# 阶段 3 ~ 8：分别为 6 大平台编译二进制
+# 每个平台继承 builder，只做一件事：编译对应版本
+# ==============================
+
+# Linux amd64
 FROM builder as linux
 RUN CGO_ENABLED=0 GOOS=linux go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/version.GitCommit=${GIT_COMMIT} \
@@ -33,6 +56,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/commands.Platform=x86_64" \
        -o faas-cli
 
+# macOS amd64
 FROM builder as darwin
 RUN CGO_ENABLED=0 GOOS=darwin go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/version.GitCommit=${GIT_COMMIT} \
@@ -40,7 +64,7 @@ RUN CGO_ENABLED=0 GOOS=darwin go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/commands.Platform=x86_64" \
        -o faas-cli-darwin
 
-
+# macOS arm64 (M1/M2/M3)
 FROM builder as darwin-arm64
 RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/version.GitCommit=${GIT_COMMIT} \
@@ -48,6 +72,7 @@ RUN CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/commands.Platform=arm64" \
        -o faas-cli-darwin-arm64
 
+# Windows amd64
 FROM builder as windows
 RUN CGO_ENABLED=0 GOOS=windows go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/version.GitCommit=${GIT_COMMIT} \
@@ -55,6 +80,7 @@ RUN CGO_ENABLED=0 GOOS=windows go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/commands.Platform=x86_64" \
        -o faas-cli.exe
 
+# Linux armhf (ARM 32位)
 FROM builder as arm
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/version.GitCommit=${GIT_COMMIT} \
@@ -62,6 +88,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm GOARM=6 go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/commands.Platform=armhf" \
        -o faas-cli-armhf
 
+# Linux arm64 (ARM 64位)
 FROM builder as arm64
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/version.GitCommit=${GIT_COMMIT} \
@@ -69,17 +96,25 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build --ldflags "-s -w \
        -X github.com/openfaas/faas-cli/commands.Platform=arm64" \
        -o faas-cli-arm64
 
-# Release stage
+# ==============================
+# 阶段 9：最终发布镜像
+# 把所有平台的二进制打包进一个镜像
+# ==============================
 FROM alpine:3.21.0 as release
 
+# 安装必备工具
 RUN apk --no-cache add ca-certificates git
 
+# 创建普通用户（不使用 root，更安全）
 RUN addgroup -S app \
        && adduser -S -g app app \
        && apk add --no-cache ca-certificates
 
 WORKDIR /home/app
 
+# ==============================
+# 从各个平台阶段复制所有二进制
+# ==============================
 COPY --from=linux          /go/src/github.com/openfaas/faas-cli/faas-cli                .
 COPY --from=darwin         /go/src/github.com/openfaas/faas-cli/faas-cli-darwin         .
 COPY --from=darwin-arm64   /go/src/github.com/openfaas/faas-cli/faas-cli-darwin-arm64   .
@@ -87,10 +122,14 @@ COPY --from=arm            /go/src/github.com/openfaas/faas-cli/faas-cli-armhf  
 COPY --from=windows        /go/src/github.com/openfaas/faas-cli/faas-cli.exe            .
 COPY --from=arm64          /go/src/github.com/openfaas/faas-cli/faas-cli-arm64          .
 
+# 设置权限
 RUN chown -R app:app ./
 
+# 加入 PATH
 ENV PATH=$PATH:/home/app/
 
+# 使用普通用户运行
 USER app
 
+# 默认启动 Linux 版本的 CLI
 CMD ["faas-cli"]
